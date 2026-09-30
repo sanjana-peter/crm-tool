@@ -4,6 +4,7 @@ import { MetaGraphClient } from "@/lib/integrations/meta/client";
 import { requireMetaConfig } from "@/lib/integrations/meta/config";
 import { mapLeadContact, toInboundLead } from "@/lib/integrations/meta/mapping";
 import type { MetaLead, MetaPage } from "@/lib/integrations/meta/types";
+import { assignmentStrategyFor } from "@/lib/services/assignment";
 import { captureLead, inboundToCaptureInput } from "@/lib/services/capture";
 import { decryptSecret, encryptSecret } from "@/lib/security/crypto";
 
@@ -387,6 +388,8 @@ export async function ingestMetaLead(
     { orgId, userId: null, role: null },
     inboundToCaptureInput(toInboundLead(lead), { assigneeId: params.defaultAssigneeId }),
     {
+      // A connection-level default assignee wins; otherwise the org's strategy (round-robin or none).
+      assignment: await assignmentStrategyFor(admin, orgId),
       // Meta's ad attribution is Meta-specific, so the core doesn't know it
       // exists: it hands us the outcome and we store our own extras. Runs for
       // `duplicate` too, so a delivery that died after creating the lead but

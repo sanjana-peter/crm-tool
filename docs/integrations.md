@@ -52,7 +52,9 @@ Everything then goes through **`captureLead(db, actor, input, { onCaptured })`**
 3. Contact already has an *open* opportunity? → `merged` (or `existing_restricted`
    if the actor may not see it), logged as "New inquiry".
 4. Else create the opportunity in the pipeline's entry stage, assigned by the
-   `AssignmentStrategy` (V1: manual / the integration's default assignee).
+   `AssignmentStrategy`: an explicit assignee (a person's choice, or the
+   integration's default assignee) wins; otherwise the org's mode — manual
+   (unassigned pool) or round-robin (`next_rotation_assignee`, D-028).
 
 `onCaptured` lets an adapter store provider-specific extras (Meta's ad
 attribution) without the core knowing they exist; it also runs on `duplicate`, so

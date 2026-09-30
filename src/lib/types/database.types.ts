@@ -109,6 +109,39 @@ export type Database = {
           },
         ]
       }
+      assignment_rotation: {
+        Row: {
+          last_user_id: string | null
+          org_id: string
+          updated_at: string
+        }
+        Insert: {
+          last_user_id?: string | null
+          org_id: string
+          updated_at?: string
+        }
+        Update: {
+          last_user_id?: string | null
+          org_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assignment_rotation_last_user_id_fkey"
+            columns: ["last_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assignment_rotation_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_events: {
         Row: {
           action: string
@@ -163,6 +196,112 @@ export type Database = {
           },
         ]
       }
+      calendar_connections: {
+        Row: {
+          account_email: string
+          calendar_id: string
+          connected_at: string
+          connected_by: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_error_at: string | null
+          org_id: string
+          provider: string
+          scopes: string[]
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          account_email: string
+          calendar_id?: string
+          connected_at?: string
+          connected_by?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          org_id: string
+          provider: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          account_email?: string
+          calendar_id?: string
+          connected_at?: string
+          connected_by?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          org_id?: string
+          provider?: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_connections_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_connections_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_connections_org_member_fkey"
+            columns: ["org_id", "user_id"]
+            isOneToOne: false
+            referencedRelation: "organization_members"
+            referencedColumns: ["org_id", "user_id"]
+          },
+        ]
+      }
+      calendar_tokens: {
+        Row: {
+          connection_id: string
+          org_id: string
+          refresh_token: string
+          updated_at: string
+        }
+        Insert: {
+          connection_id: string
+          org_id: string
+          refresh_token: string
+          updated_at?: string
+        }
+        Update: {
+          connection_id?: string
+          org_id?: string
+          refresh_token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_tokens_connection_fkey"
+            columns: ["org_id", "connection_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_connections"
+            referencedColumns: ["org_id", "id"]
+          },
+          {
+            foreignKeyName: "calendar_tokens_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       call_logs: {
         Row: {
           called_at: string
@@ -201,6 +340,13 @@ export type Database = {
           outcome?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "call_logs_caller_id_fkey"
+            columns: ["caller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "call_logs_org_id_caller_id_fkey"
             columns: ["org_id", "caller_id"]
@@ -250,6 +396,9 @@ export type Database = {
           source_detail: string | null
           tags: string[]
           updated_at: string
+          whatsapp_consent_at: string | null
+          whatsapp_consent_source: string | null
+          whatsapp_consent_status: string
         }
         Insert: {
           additional_phone?: string | null
@@ -269,6 +418,9 @@ export type Database = {
           source_detail?: string | null
           tags?: string[]
           updated_at?: string
+          whatsapp_consent_at?: string | null
+          whatsapp_consent_source?: string | null
+          whatsapp_consent_status?: string
         }
         Update: {
           additional_phone?: string | null
@@ -288,6 +440,9 @@ export type Database = {
           source_detail?: string | null
           tags?: string[]
           updated_at?: string
+          whatsapp_consent_at?: string | null
+          whatsapp_consent_source?: string | null
+          whatsapp_consent_status?: string
         }
         Relationships: [
           {
@@ -299,6 +454,54 @@ export type Database = {
           },
           {
             foreignKeyName: "contacts_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          channel: string
+          contact_id: string
+          created_at: string
+          id: string
+          last_inbound_at: string | null
+          last_message_at: string | null
+          org_id: string
+          updated_at: string
+        }
+        Insert: {
+          channel?: string
+          contact_id: string
+          created_at?: string
+          id?: string
+          last_inbound_at?: string | null
+          last_message_at?: string | null
+          org_id: string
+          updated_at?: string
+        }
+        Update: {
+          channel?: string
+          contact_id?: string
+          created_at?: string
+          id?: string
+          last_inbound_at?: string | null
+          last_message_at?: string | null
+          org_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_org_id_contact_id_fkey"
+            columns: ["org_id", "contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["org_id", "id"]
+          },
+          {
+            foreignKeyName: "conversations_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -686,56 +889,123 @@ export type Database = {
           },
         ]
       }
+      meeting_attendees: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          meeting_id: string
+          name: string | null
+          org_id: string
+          role: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          meeting_id: string
+          name?: string | null
+          org_id: string
+          role?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          meeting_id?: string
+          name?: string | null
+          org_id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_attendees_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_attendees_org_id_meeting_id_fkey"
+            columns: ["org_id", "meeting_id"]
+            isOneToOne: false
+            referencedRelation: "meetings"
+            referencedColumns: ["org_id", "id"]
+          },
+        ]
+      }
       meetings: {
         Row: {
+          calendar_connection_id: string | null
           created_at: string
           created_by: string | null
           external_booking_url: string | null
+          external_event_id: string | null
+          external_event_url: string | null
           id: string
           lead_id: string
-          meeting_type: string
           meeting_url: string | null
           notes: string | null
           org_id: string
+          provider: string
           salesperson_id: string | null
           scheduled_end: string | null
           scheduled_start: string
           status: string
+          sync_error: string | null
+          title: string | null
           updated_at: string
         }
         Insert: {
+          calendar_connection_id?: string | null
           created_at?: string
           created_by?: string | null
           external_booking_url?: string | null
+          external_event_id?: string | null
+          external_event_url?: string | null
           id?: string
           lead_id: string
-          meeting_type?: string
           meeting_url?: string | null
           notes?: string | null
           org_id: string
+          provider?: string
           salesperson_id?: string | null
           scheduled_end?: string | null
           scheduled_start: string
           status?: string
+          sync_error?: string | null
+          title?: string | null
           updated_at?: string
         }
         Update: {
+          calendar_connection_id?: string | null
           created_at?: string
           created_by?: string | null
           external_booking_url?: string | null
+          external_event_id?: string | null
+          external_event_url?: string | null
           id?: string
           lead_id?: string
-          meeting_type?: string
           meeting_url?: string | null
           notes?: string | null
           org_id?: string
+          provider?: string
           salesperson_id?: string | null
           scheduled_end?: string | null
           scheduled_start?: string
           status?: string
+          sync_error?: string | null
+          title?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "meetings_calendar_connection_fkey"
+            columns: ["org_id", "calendar_connection_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_connections"
+            referencedColumns: ["org_id", "id"]
+          },
           {
             foreignKeyName: "meetings_created_by_fkey"
             columns: ["created_by"]
@@ -1278,6 +1548,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          in_rotation: boolean
           is_active: boolean
           org_id: string
           role: string
@@ -1286,6 +1557,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          in_rotation?: boolean
           is_active?: boolean
           org_id: string
           role: string
@@ -1294,6 +1566,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          in_rotation?: boolean
           is_active?: boolean
           org_id?: string
           role?: string
@@ -1323,6 +1596,7 @@ export type Database = {
           currency: string
           default_country: string
           id: string
+          lead_assignment_mode: string
           name: string
           slug: string
           timezone: string
@@ -1334,6 +1608,7 @@ export type Database = {
           currency?: string
           default_country?: string
           id?: string
+          lead_assignment_mode?: string
           name: string
           slug: string
           timezone?: string
@@ -1345,6 +1620,7 @@ export type Database = {
           currency?: string
           default_country?: string
           id?: string
+          lead_assignment_mode?: string
           name?: string
           slug?: string
           timezone?: string
@@ -1603,48 +1879,69 @@ export type Database = {
       }
       whatsapp_messages: {
         Row: {
+          conversation_id: string
           created_at: string
+          delivered_at: string | null
+          direction: string
           error: string | null
+          error_code: string | null
+          from_phone: string | null
           id: string
-          language: string
+          language: string | null
           lead_id: string
+          message_type: string
           org_id: string
+          read_at: string | null
           rendered_body: string
           sent_by: string | null
           status: string
           template_id: string | null
-          template_name: string
-          to_phone: string
+          template_name: string | null
+          to_phone: string | null
           wa_message_id: string | null
         }
         Insert: {
+          conversation_id: string
           created_at?: string
+          delivered_at?: string | null
+          direction?: string
           error?: string | null
+          error_code?: string | null
+          from_phone?: string | null
           id?: string
-          language: string
+          language?: string | null
           lead_id: string
+          message_type?: string
           org_id: string
+          read_at?: string | null
           rendered_body: string
           sent_by?: string | null
           status?: string
           template_id?: string | null
-          template_name: string
-          to_phone: string
+          template_name?: string | null
+          to_phone?: string | null
           wa_message_id?: string | null
         }
         Update: {
+          conversation_id?: string
           created_at?: string
+          delivered_at?: string | null
+          direction?: string
           error?: string | null
+          error_code?: string | null
+          from_phone?: string | null
           id?: string
-          language?: string
+          language?: string | null
           lead_id?: string
+          message_type?: string
           org_id?: string
+          read_at?: string | null
           rendered_body?: string
           sent_by?: string | null
           status?: string
           template_id?: string | null
-          template_name?: string
-          to_phone?: string
+          template_name?: string | null
+          to_phone?: string | null
           wa_message_id?: string | null
         }
         Relationships: [
@@ -1654,6 +1951,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "leads"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_org_conversation_fkey"
+            columns: ["org_id", "conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["org_id", "id"]
           },
           {
             foreignKeyName: "whatsapp_messages_org_id_fkey"
@@ -1794,6 +2098,36 @@ export type Database = {
       }
       current_org_id: { Args: never; Returns: string }
       current_org_role: { Args: never; Returns: string }
+      dashboard_rep_activity: {
+        Args: { p_from: string; p_org: string }
+        Returns: {
+          calls: number
+          email: string
+          followups_completed: number
+          full_name: string
+          meetings_completed: number
+          open_leads: number
+          overdue_followups: number
+          role: string
+          uncontacted: number
+          user_id: string
+        }[]
+      }
+      dashboard_source_breakdown: {
+        Args: { p_from: string; p_org: string }
+        Returns: {
+          lead_count: number
+          source: string
+          won_count: number
+        }[]
+      }
+      dashboard_stage_counts: {
+        Args: { p_org: string }
+        Returns: {
+          lead_count: number
+          stage_id: string
+        }[]
+      }
       find_contact_for_capture: {
         Args: {
           p_email_normalized: string
@@ -1802,7 +2136,16 @@ export type Database = {
         }
         Returns: string
       }
+      find_open_opportunity_for_capture: {
+        Args: { p_contact: string; p_org: string }
+        Returns: {
+          assigned_to: string
+          created_by: string
+          lead_id: string
+        }[]
+      }
       is_org_member: { Args: { target_org: string }; Returns: boolean }
+      next_rotation_assignee: { Args: { p_org: string }; Returns: string }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean

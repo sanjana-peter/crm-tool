@@ -5,6 +5,7 @@ import { UserError } from "@/lib/domain/errors";
 import { permissions, type OrgRole } from "@/lib/domain/permissions";
 import type { OpportunityPriority } from "@/lib/domain/opportunity";
 import { LEAD_SOURCES, type LeadSource } from "@/lib/types/domain";
+import { assignmentStrategyFor } from "@/lib/services/assignment";
 import { CaptureError, captureLead } from "@/lib/services/capture";
 import { markConnected, markFailing } from "@/lib/services/integration-health";
 import { recordAudit } from "@/lib/services/audit";
@@ -72,6 +73,9 @@ export async function importLeadsFromCsv(
     errors: [...parsed.errors],
   };
 
+  // Rows carry no assignee, so under round-robin each new lead takes the next turn.
+  const assignment = await assignmentStrategyFor(clients.db, actor.orgId);
+
   for (const row of parsed.rows) {
     const { source, sourceDetail } = resolveSource(row.source);
     try {
@@ -97,7 +101,8 @@ export async function importLeadsFromCsv(
             description: `${fileName}, row ${row.rowNumber}`,
             metadata: { fileName, rowNumber: row.rowNumber },
           },
-        }
+        },
+        { assignment }
       );
       switch (result.outcome) {
         case "created":

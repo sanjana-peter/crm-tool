@@ -178,11 +178,14 @@ export async function captureLead(
   }
 
   // 4. New opportunity.
-  const assigneeId = await (deps.assignment ?? manualAssignment).pickAssignee({
+  const strategy = deps.assignment ?? manualAssignment;
+  const requestedAssigneeId = input.assigneeId ?? null;
+  const assigneeId = await strategy.pickAssignee({
     orgId: actor.orgId,
     source: input.source,
-    requestedAssigneeId: input.assigneeId ?? null,
+    requestedAssigneeId,
   });
+  const pickedByStrategy = assigneeId !== null && assigneeId !== requestedAssigneeId;
   if (actor.userId && actor.role && !permissions.canAssignNewLead(actor.role, actor.userId, assigneeId)) {
     throw new CaptureError("You can only assign a new lead to yourself. Ask a manager to assign it to someone else.");
   }
@@ -247,7 +250,10 @@ export async function captureLead(
       actorId: actor.userId,
       type: "lead_assigned",
       title: "Assigned to salesperson",
-      description: `Lead assigned to ${await displayNameOf(db, assigneeId)}${actor.userId ? "" : " automatically"}.`,
+      description: `Lead assigned to ${await displayNameOf(db, assigneeId)}${
+        pickedByStrategy ? ` by ${strategy.label}` : actor.userId ? "" : " automatically"
+      }.`,
+      metadata: pickedByStrategy ? { strategy: strategy.name } : undefined,
     });
   }
 

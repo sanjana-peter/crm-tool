@@ -84,7 +84,7 @@ export function ScheduleMeetingDialog({
       // Saved, but the calendar event doesn't exist: say so plainly.
       toast.warning(`Meeting saved, but it isn't on the calendar yet: ${sync.error}`);
     } else if (sync?.status === "unavailable") {
-      toast.warning("Meeting saved, but no calendar is connected, so no invitation was sent.");
+      toast.warning("Meeting saved, but no calendar is connected, so no invitation was sent. Connect your Google Calendar in Settings.");
     } else {
       toast.success("Meeting logged");
     }

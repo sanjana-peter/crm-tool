@@ -7,9 +7,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrganization } from "@/lib/services/settings";
 import { getConnection as getMetaConnection } from "@/lib/services/meta";
 import { getConnection as getWhatsAppConnection } from "@/lib/services/whatsapp";
-import { getCalendarConnection } from "@/lib/services/calendar-connections";
+import { getCalendarConnection, getPersonalCalendarConnection } from "@/lib/services/calendar-connections";
+import { getGoogleConfig } from "@/lib/integrations/google/config";
+import { formatDate } from "@/lib/format";
 import { permissions } from "@/lib/domain/permissions";
 import { SettingsForm } from "@/components/crm/settings/settings-form";
+import { PersonalCalendarCard } from "@/components/crm/integrations/personal-calendar-card";
+import { GOOGLE_OAUTH_ERRORS } from "@/components/crm/integrations/google-oauth-messages";
 
 function IntegrationRow({
   href,
@@ -49,17 +53,31 @@ function IntegrationRow({
   );
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
+  const params = await searchParams;
   const session = await requireSession();
   const supabase = await createClient();
   const isAdmin = permissions.canEditSettings(session.role);
 
-  const [organization, metaConnection, whatsAppConnection, calendarConnection] = await Promise.all([
+  const [organization, metaConnection, whatsAppConnection, calendarConnection, myCalendar] = await Promise.all([
     getOrganization(supabase, session.orgId),
     isAdmin ? getMetaConnection(supabase, session.orgId) : Promise.resolve(null),
     isAdmin ? getWhatsAppConnection(supabase, session.orgId) : Promise.resolve(null),
-    isAdmin ? getCalendarConnection(supabase, session.orgId) : Promise.resolve(null),
+    getCalendarConnection(supabase, session.orgId),
+    getPersonalCalendarConnection(supabase, session.orgId, session.user.id),
   ]);
+  const timezone = (organization.timezone as string | undefined) ?? "Asia/Kolkata";
+
+  // Set by the Google OAuth callback after a personal connection attempt.
+  const calendarMessage = params.calendar_error
+    ? { kind: "error" as const, text: GOOGLE_OAUTH_ERRORS[params.calendar_error] ?? "Connecting your Google Calendar failed." }
+    : params.calendar_connected === "1"
+      ? { kind: "success" as const, text: "Your Google Calendar is connected. Meetings you host will be created on it." }
+      : null;
 
   return (
     <div className="space-y-5">
@@ -68,12 +86,21 @@ export default async function SettingsPage() {
         <p className="text-sm text-muted-foreground">Organization and integration configuration.</p>
       </div>
 
+      <PersonalCalendarCard
+        configured={Boolean(getGoogleConfig())}
+        accountEmail={myCalendar?.account_email ?? null}
+        connectedAt={myCalendar ? formatDate(myCalendar.connected_at, timezone) : null}
+        lastError={myCalendar?.last_error ?? null}
+        hasSharedCalendar={Boolean(calendarConnection)}
+        message={calendarMessage}
+      />
+
       {isAdmin ? (
         <>
           <SettingsForm
             orgName={organization.name}
             calendlyBookingUrl={organization.calendly_booking_url}
-            timezone={(organization.timezone as string | undefined) ?? "Asia/Kolkata"}
+            timezone={timezone}
           />
 
           <IntegrationRow
@@ -99,7 +126,7 @@ export default async function SettingsPage() {
           <IntegrationRow
             href="/settings/integrations/google"
             name="Google Calendar & Meet"
-            description="Schedule meetings with a Meet link and calendar invitations."
+            description="The team's shared calendar, for hosts who haven't connected their own."
             connected={Boolean(calendarConnection)}
           />
         </>

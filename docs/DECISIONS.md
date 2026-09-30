@@ -241,7 +241,7 @@ account's calendar with the salesperson and contact as attendees and
 per-user OAuth and consent for every rep — a V2 extension. The
 `CalendarProvider` interface takes a connection id so per-user connections
 slot in without an interface change. Calendly link-out stays as the
-"manual link" provider for orgs without Google.
+"manual link" provider for orgs without Google. *Extended by D-029.*
 
 ---
 
@@ -435,3 +435,59 @@ is ever disconnected, the deploy job from the earlier draft is the one to
 bring back — it needs `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` as
 repo secrets and nothing else, since it pulls the app's real env vars from
 Vercel's own Production environment rather than duplicating them into GitHub.
+
+---
+
+## D-028 — Round-robin assignment: org mode + per-member rotation, turns taken in SQL
+**Status:** Accepted
+
+**Context.** Meta leads and file imports arrive with no one choosing an
+assignee, so under V1 they sat in the unassigned pool until someone claimed
+them.
+
+**Decision.** `organizations.lead_assignment_mode` is `manual` (default) or
+`round_robin`; `organization_members.in_rotation` says who takes turns
+(salespeople by default, managers/admins opt in). `roundRobinAssignment` is a
+second `AssignmentStrategy`; the turn itself is `next_rotation_assignee(org)`,
+which locks the org's `assignment_rotation` row, picks the next active,
+in-rotation member by user id after the last one (wrapping), and records it —
+so concurrent webhook deliveries get distinct consecutive turns. An explicit
+assignee (a person's choice, or Meta's default assignee) always wins and does
+not consume a turn. Merged/duplicate captures never reach the strategy, so they
+don't consume turns either.
+
+It applies where no person is choosing: Meta webhook + backfill, file import,
+the test source. Manual entry keeps its assignee picker — auto-assigning there
+would surprise the person typing, and would violate the rule that a
+salesperson may only assign a new lead to themselves.
+
+**Consequence.** Order is by user id, not join date — stable and cheap, but not
+something the admin can reorder. A turn is consumed even if the lead insert
+later fails (rare; it just skips someone once). Load-based routing would be a
+third strategy, not a change to this one.
+
+---
+
+## D-029 — Per-salesperson calendars: personal connections beside the shared one
+**Status:** Accepted
+
+**Context.** With one org-level Google account (D-015), every invitation came
+from the same shared calendar, and reps' own calendars didn't show their
+meetings.
+
+**Decision.** `calendar_connections.user_id` null = the org's shared calendar
+(admin-managed, at most one); set = that member's personal calendar (at most
+one each, managed by the member from Settings). Tokens are keyed by
+connection. A new meeting goes on its host's personal calendar if connected,
+else the shared one (`composition/calendar.ts`). `meetings.calendar_connection_id`
+records which connection holds the event, so reschedule/cancel always hit the
+same calendar even if the host connects or disconnects later. The OAuth state
+carries a signed `personal` flag. A personal connection's failures go on its
+own row (`last_error`) — one rep's revoked grant must not mark the org's
+calendar integration as failing; the shared one still reports through
+`integration_health`.
+
+**Consequence.** Disconnecting a calendar leaves its events in Google but
+unlinks them (`calendar_connection_id` → null), so later changes to those
+meetings no longer reach the calendar. For a Google app in "Testing", every
+rep who connects must be listed as a test user.

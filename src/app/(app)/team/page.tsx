@@ -1,6 +1,7 @@
 import { requireSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { listOrgMembers } from "@/lib/services/team";
+import { getAssignmentMode } from "@/lib/services/assignment";
 import { permissions } from "@/lib/domain/permissions";
 import { Badge } from "@/components/ui/badge";
 import { PersonAvatar } from "@/components/crm/layout/person-avatar";
@@ -15,6 +16,8 @@ import {
 import { InviteMemberDialog } from "@/components/crm/team/invite-member-dialog";
 import { MemberRoleSelect } from "@/components/crm/team/member-role-select";
 import { MemberActiveToggle } from "@/components/crm/team/member-active-toggle";
+import { MemberRotationToggle } from "@/components/crm/team/member-rotation-toggle";
+import { AssignmentModeCard } from "@/components/crm/team/assignment-mode-card";
 import type { Profile, OrgRole } from "@/lib/types/domain";
 
 const ROLE_VARIANT: Record<OrgRole, string> = {
@@ -26,8 +29,12 @@ const ROLE_VARIANT: Record<OrgRole, string> = {
 export default async function TeamPage() {
   const session = await requireSession();
   const supabase = await createClient();
-  const members = await listOrgMembers(supabase, session);
   const canManage = permissions.canManageTeam(session.role);
+  const [members, assignmentMode] = await Promise.all([
+    listOrgMembers(supabase, session),
+    canManage ? getAssignmentMode(supabase, session.orgId) : Promise.resolve(null),
+  ]);
+  const rotationSize = members.filter((m) => m.in_rotation && m.is_active !== false).length;
 
   return (
     <div className="space-y-5">
@@ -39,6 +46,8 @@ export default async function TeamPage() {
         {canManage && <InviteMemberDialog />}
       </div>
 
+      {canManage && assignmentMode && <AssignmentModeCard mode={assignmentMode} rotationSize={rotationSize} />}
+
       <div className="overflow-x-auto rounded-lg border">
         <Table>
           <TableHeader>
@@ -47,6 +56,7 @@ export default async function TeamPage() {
               <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
+              {canManage && <TableHead>In rotation</TableHead>}
               {canManage && <TableHead className="text-right">Actions</TableHead>}
             </TableRow>
           </TableHeader>
@@ -73,6 +83,15 @@ export default async function TeamPage() {
                       <Badge variant="destructive">Deactivated</Badge>
                     )}
                   </TableCell>
+                  {canManage && (
+                    <TableCell>
+                      <MemberRotationToggle
+                        userId={m.user_id as string}
+                        inRotation={Boolean(m.in_rotation)}
+                        name={profile.full_name || profile.email}
+                      />
+                    </TableCell>
+                  )}
                   {canManage && (
                     <TableCell className="flex items-center justify-end gap-2 text-right">
                       <MemberRoleSelect

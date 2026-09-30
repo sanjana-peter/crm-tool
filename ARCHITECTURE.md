@@ -115,6 +115,15 @@ Replay → `duplicate`; a returning person with an open opportunity → `merged`
 `lead_inquiries` + unique indexes, so concurrent deliveries create exactly one
 lead.
 
+**Assignment** of a new lead goes through an `AssignmentStrategy`
+(`domain/assignment.ts`), chosen by `services/assignment.ts` from
+`organizations.lead_assignment_mode`: `manual` (explicit assignee or the
+unassigned pool) or `round_robin`. Round-robin applies where nobody is choosing
+— Meta webhook/backfill, file import, the test source — never to manual entry.
+An explicit assignee (including Meta's default assignee) always wins. The turn
+is taken by `next_rotation_assignee()` under a row lock on
+`assignment_rotation`, over active members with `in_rotation` (D-028).
+
 ### Time
 
 Everything "today"/"overdue" is measured in `organizations.timezone` (default
@@ -170,6 +179,13 @@ storage, discovery) is in `services/meta.ts`, `services/whatsapp.ts`,
 | Inbound | `POST /api/webhooks/meta` (+ backfill) | `POST /api/webhooks/whatsapp` (messages, statuses) | — |
 | Core service | `capture.ts` | `conversations.ts` | `meetings.ts` |
 
+Calendars: an org has at most one *shared* `calendar_connections` row
+(`user_id` null, admin-managed) and one *personal* row per member (managed from
+`/settings`). `resolveCalendar(admin, orgId, target)` picks the connection that
+already holds a meeting's event (`meetings.calendar_connection_id`), else the
+host's personal calendar, else the shared one. A personal connection's
+failures go on its own `last_error`, not `integration_health` (D-029).
+
 WhatsApp: templates anytime; free text only within 24 h of the customer's last
 message (`domain/whatsapp.ts`); consent recorded on the contact, `STOP` honoured;
 failures are timeline events (`whatsapp_failed`), and only integration-level
@@ -180,7 +196,8 @@ sets `sync_error` and is retryable.
 ### Integration credentials — unreadable, and encrypted
 
 `meta_user_tokens`, `meta_page_tokens`, `whatsapp_user_tokens`, `calendar_tokens`
-have RLS **enabled with zero policies** and privileges `revoke`d from
+(keyed by connection), and `assignment_rotation` (not a secret, but no client
+needs it) have RLS **enabled with zero policies** and privileges `revoke`d from
 `anon`/`authenticated` (Supabase exposes new public tables to the Data API by
 default, so the revoke is not redundant). Values are additionally AES-256-GCM
 encrypted (`security/crypto.ts`, `enc:v1:` prefix, `INTEGRATION_ENCRYPTION_KEY`;
@@ -207,8 +224,9 @@ src/
       page.tsx                    home: Today (salesperson) | owner dashboard (admin/manager)
       today/                      everyone's personal queue
       leads/ [id]/                list (filters), detail (call/WhatsApp/meeting actions, timeline)
-      pipeline/ followups/ meetings/ team/
-      settings/                   org settings (incl. timezone) + integrations/
+      pipeline/ followups/ meetings/
+      team/                       members, roles, lead-assignment mode + rotation
+      settings/                   my calendar (everyone); org settings (incl. timezone) + integrations/
         integrations/             health overview, meta/, whatsapp/, google/
       actions.ts                  server actions (thin: validate → authorize → runAction → service)
     api/
@@ -242,6 +260,7 @@ Dockerfile, .dockerignore         standalone image; NEXT_PUBLIC_* are build args
 | `0008_reporting.sql` | `dashboard_stage_counts`, `dashboard_source_breakdown`, `dashboard_rep_activity` (security invoker) |
 | `0009_whatsapp_conversations.sql` | `conversations`; inbound/status/consent columns; unique provider message id and unique number-per-org |
 | `0010_calendar.sql` | `calendar_connections`, `calendar_tokens` (locked), meeting provider/event/`sync_error`, `meeting_attendees` |
+| `0011_round_robin_and_personal_calendars.sql` | `organizations.lead_assignment_mode`, `organization_members.in_rotation`, `assignment_rotation` (locked) + `next_rotation_assignee()`; `calendar_connections.user_id` (shared vs personal, partial unique indexes), `last_error`; `calendar_tokens` keyed by `connection_id`; `meetings.calendar_connection_id` |
 
 `activities` is append-only and **`logActivity()` is its only writer**.
 
@@ -294,11 +313,10 @@ has; Vitest under `NODE_ENV=test` skips `.env.local` (see
 ## Known gaps
 
 - No CSP header; no MFA; encryption-key rotation is manual (`docs/security.md`).
-- One WhatsApp number and one Google account per org; per-salesperson calendars
-  are V2.
+- One WhatsApp number per org.
 - Inbound WhatsApp from an unknown number is logged, not turned into a lead.
 - Meta long-lived tokens aren't proactively refreshed.
-- No automation/workflow engine, round-robin, or ad-spend data (V2).
+- No automation/workflow engine, load-based routing, or ad-spend data (V2).
 - `meta_webhook_events` (Meta's delivery log, used by the admin UI) and
   `webhook_receipts` (idempotency for later providers) are two logs; consolidating
   is a V2 cleanup.

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { checkStageMove, statusForStage } from "@/lib/domain/opportunity";
-import { manualAssignment } from "@/lib/domain/assignment";
+import { isAssignmentMode, manualAssignment, roundRobinAssignment } from "@/lib/domain/assignment";
 
 describe("statusForStage", () => {
   it("derives status from stage flags, not labels", () => {
@@ -35,5 +35,38 @@ describe("manualAssignment", () => {
     const base = { orgId: "o", source: "manual" };
     expect(await manualAssignment.pickAssignee({ ...base, requestedAssigneeId: "rep-a" })).toBe("rep-a");
     expect(await manualAssignment.pickAssignee({ ...base, requestedAssigneeId: null })).toBeNull();
+  });
+});
+
+describe("roundRobinAssignment", () => {
+  const base = { orgId: "org-1", source: "meta" };
+
+  it("takes the next turn when nobody was chosen", async () => {
+    const turns = ["rep-a", "rep-b"];
+    const next = vi.fn(async () => turns.shift() ?? null);
+    const strategy = roundRobinAssignment(next);
+
+    expect(await strategy.pickAssignee({ ...base, requestedAssigneeId: null })).toBe("rep-a");
+    expect(await strategy.pickAssignee({ ...base, requestedAssigneeId: null })).toBe("rep-b");
+    expect(next).toHaveBeenCalledWith("org-1");
+  });
+
+  it("lets an explicit choice win without using up anyone's turn", async () => {
+    const next = vi.fn(async () => "rep-a");
+    expect(await roundRobinAssignment(next).pickAssignee({ ...base, requestedAssigneeId: "rep-z" })).toBe("rep-z");
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("leaves the lead unassigned when the rotation is empty", async () => {
+    expect(await roundRobinAssignment(async () => null).pickAssignee({ ...base, requestedAssigneeId: null })).toBeNull();
+  });
+});
+
+describe("isAssignmentMode", () => {
+  it("accepts only the known modes", () => {
+    expect(isAssignmentMode("manual")).toBe(true);
+    expect(isAssignmentMode("round_robin")).toBe(true);
+    expect(isAssignmentMode("load_based")).toBe(false);
+    expect(isAssignmentMode(undefined)).toBe(false);
   });
 });

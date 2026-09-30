@@ -7,20 +7,12 @@ import { requireRole } from "@/lib/auth/session";
 import { formatDate } from "@/lib/format";
 import { getGoogleConfig } from "@/lib/integrations/google/config";
 import { calendarMode } from "@/lib/composition/calendar";
-import { getCalendarConnection } from "@/lib/services/calendar-connections";
+import { getCalendarConnection, listPersonalCalendarConnections } from "@/lib/services/calendar-connections";
+import { listOrgMembers } from "@/lib/services/team";
+import type { Profile } from "@/lib/types/domain";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleConnectionCard } from "@/components/crm/integrations/google-connection-card";
-
-const ERROR_MESSAGES: Record<string, string> = {
-  not_configured: "This deployment is missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET.",
-  denied: "The Google authorization was cancelled.",
-  missing_code: "Google did not return an authorization code. Try connecting again.",
-  invalid_state: "That authorization link expired. Start the connection again.",
-  state_mismatch: "The authorization was started by a different account. Try again.",
-  no_refresh_token: "Google did not grant offline access. Remove the app from your Google account's connected apps and connect again.",
-  missing_scope: "Calendar access was not granted. Connect again and tick the calendar permission.",
-  exchange_failed: "Google rejected the connection. Try again.",
-};
+import { GOOGLE_OAUTH_ERRORS } from "@/components/crm/integrations/google-oauth-messages";
 
 export default async function GoogleIntegrationPage({
   searchParams,
@@ -32,14 +24,16 @@ export default async function GoogleIntegrationPage({
   const supabase = await createClient();
   const config = getGoogleConfig();
 
-  const [connection, mode, organization] = await Promise.all([
+  const [connection, mode, organization, personal, members] = await Promise.all([
     getCalendarConnection(supabase, session.orgId),
     calendarMode(supabase, session.orgId),
     supabase.from("organizations").select("timezone").eq("id", session.orgId).single(),
+    listPersonalCalendarConnections(supabase, session.orgId),
+    listOrgMembers(supabase, session),
   ]);
   const timezone = (organization.data?.timezone as string | undefined) ?? "Asia/Kolkata";
 
-  const errorMessage = params.error ? (ERROR_MESSAGES[params.error] ?? "Connecting Google Calendar failed.") : null;
+  const errorMessage = params.error ? (GOOGLE_OAUTH_ERRORS[params.error] ?? "Connecting Google Calendar failed.") : null;
 
   return (
     <div className="space-y-5">
@@ -94,7 +88,42 @@ export default async function GoogleIntegrationPage({
           </CardContent>
         </Card>
       ) : (
-        <GoogleConnectionCard connection={connection} connectedAt={connection ? formatDate(connection.connected_at, timezone) : null} />
+        <>
+          <GoogleConnectionCard connection={connection} connectedAt={connection ? formatDate(connection.connected_at, timezone) : null} />
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Personal calendars</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p className="text-muted-foreground">
+                Each person can connect their own Google Calendar in Settings; meetings they host then go there instead
+                of the shared calendar.
+              </p>
+              <ul className="divide-y rounded-md border">
+                {members
+                  .filter((m) => m.is_active !== false)
+                  .map((m) => {
+                    const profile = (Array.isArray(m.profile) ? m.profile[0] : m.profile) as Profile;
+                    const own = personal.get(m.user_id as string);
+                    return (
+                      <li key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <span>{profile.full_name || profile.email}</span>
+                        {own ? (
+                          own.last_error ? (
+                            <Badge variant="destructive">Needs reconnecting</Badge>
+                          ) : (
+                            <Badge variant="secondary">{own.account_email}</Badge>
+                          )
+                        ) : (
+                          <span className="text-muted-foreground">{connection ? "Uses shared calendar" : "No calendar"}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+              </ul>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

@@ -72,7 +72,7 @@ export function MetaConnectionCard({
   }
 
   const assigneeLabel = (value: string) => {
-    if (value === UNASSIGNED) return "Leave unassigned";
+    if (value === UNASSIGNED) return "No one (use the team setting)";
     const member = members.find((m) => m.id === value);
     return member?.full_name || member?.email || "Select a person";
   };
@@ -133,7 +133,7 @@ export function MetaConnectionCard({
                 <SelectValue placeholder="Select a person">{assigneeLabel}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={UNASSIGNED}>Leave unassigned</SelectItem>
+                <SelectItem value={UNASSIGNED}>No one (use the team setting)</SelectItem>
                 {members.map((member) => (
                   <SelectItem key={member.id} value={member.id}>
                     {member.full_name || member.email}
@@ -142,7 +142,8 @@ export function MetaConnectionCard({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Every lead that arrives from Meta goes to this person so nothing sits unclaimed.
+              Every lead that arrives from Meta goes to this person. Choose &ldquo;No one&rdquo; to follow the
+              lead-assignment setting on the Team page (round-robin, or the unassigned pool).
             </p>
           </div>
         )}

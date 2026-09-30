@@ -64,7 +64,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     getOrganization(supabase, session.orgId),
     getLeadAttribution(supabase, id),
     whatsappMode(supabase, session.orgId),
-    calendarMode(supabase, session.orgId),
+    calendarMode(supabase, session.orgId, session.user.id),
     listTemplates(supabase, session.orgId),
     listMessagesForLead(supabase, id),
     getConversationState(supabase, id),

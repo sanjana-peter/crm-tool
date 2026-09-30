@@ -2,8 +2,10 @@
 
 import { requireRole } from "@/lib/auth/session";
 import { runAction, type ActionResult } from "@/lib/actions/run";
+import { isAssignmentMode } from "@/lib/domain/assignment";
 import { UserError } from "@/lib/domain/errors";
 import { checkRateLimit } from "@/lib/security/rate-limit";
+import { setAssignmentMode, setMemberInRotation } from "@/lib/services/assignment";
 import { inviteMember } from "@/lib/services/organizations";
 import { setMemberActive, setMemberRole } from "@/lib/services/team";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -62,5 +64,35 @@ export async function setMemberRoleAction(targetUserId: string, role: string): P
         role: parsed.data.role,
       }),
     ["/team", "/"]
+  );
+}
+
+export async function setAssignmentModeAction(mode: string): Promise<ActionResult> {
+  if (!isAssignmentMode(mode)) return { ok: false, error: "Invalid assignment mode." };
+
+  const session = await requireRole(["admin"]);
+  return runAction(
+    "setAssignmentMode",
+    () => setAssignmentMode(createAdminClient(), { orgId: session.orgId, actingUserId: session.user.id, mode }),
+    ["/team"]
+  );
+}
+
+export async function setMemberInRotationAction(targetUserId: string, inRotation: boolean): Promise<ActionResult> {
+  if (!/^[0-9a-f-]{36}$/i.test(targetUserId) || typeof inRotation !== "boolean") {
+    return { ok: false, error: "Invalid request." };
+  }
+
+  const session = await requireRole(["admin"]);
+  return runAction(
+    "setMemberInRotation",
+    () =>
+      setMemberInRotation(createAdminClient(), {
+        orgId: session.orgId,
+        actingUserId: session.user.id,
+        targetUserId,
+        inRotation,
+      }),
+    ["/team"]
   );
 }

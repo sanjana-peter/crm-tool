@@ -8,10 +8,12 @@ import {
   disconnectCalendar,
   getCalendarConnection,
   getCalendarCredential,
+  getPersonalCalendarConnection,
   saveCalendarConnection,
 } from "@/lib/services/calendar-connections";
 import {
   createMeeting,
+  getMeetingCalendarTarget,
   rescheduleMeeting,
   syncMeetingToCalendar,
   updateMeetingStatus,
@@ -309,12 +311,12 @@ describe("rescheduling and cancelling", () => {
 describe("Google connection storage", () => {
   it("encrypts the refresh token at rest, decrypts it for use, and audits connect and disconnect", async () => {
     const token = "1//0gSuperSecretRefreshToken";
-    await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "sales@summit.example", refreshToken: token, scopes: ["https://www.googleapis.com/auth/calendar.events"] });
+    const { connectionId } = await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "sales@summit.example", refreshToken: token, scopes: ["https://www.googleapis.com/auth/calendar.events"] });
 
-    const { data: stored } = await admin.from("calendar_tokens").select("refresh_token").eq("org_id", orgId).single();
+    const { data: stored } = await admin.from("calendar_tokens").select("refresh_token").eq("connection_id", connectionId).single();
     expect(stored?.refresh_token).not.toContain(token);
     expect(String(stored?.refresh_token)).toMatch(/^enc:v1:/);
-    expect(await getCalendarCredential(admin, orgId)).toBe(token);
+    expect(await getCalendarCredential(admin, connectionId)).toBe(token);
 
     const connection = await getCalendarConnection(admin, orgId);
     expect(connection).toMatchObject({ provider: "google", account_email: "sales@summit.example" });
@@ -324,7 +326,7 @@ describe("Google connection storage", () => {
 
     await disconnectCalendar(admin, orgId, adminUser.session.user.id);
     expect(await getCalendarConnection(admin, orgId)).toBeNull();
-    expect(await getCalendarCredential(admin, orgId)).toBeNull();
+    expect(await getCalendarCredential(admin, connectionId)).toBeNull();
 
     const { data: audit } = await admin.from("audit_events").select("action, summary").eq("org_id", orgId).eq("entity_id", "google_calendar");
     expect(audit?.map((a) => a.action)).toEqual(expect.arrayContaining(["integration.connected", "integration.disconnected"]));
@@ -398,5 +400,111 @@ describe("tenant isolation for meetings", () => {
     const { meetingId } = await createMeeting(priya.db, priya.session, input(priyaLead.leadId, { use_calendar: false }) as never);
     const { data } = await jordan.db.from("meetings").select("id").eq("id", meetingId);
     expect(data ?? []).toHaveLength(0);
+  });
+});
+
+describe("per-salesperson calendars", () => {
+  const googleOn = () => {
+    process.env.GOOGLE_CLIENT_ID = "cid";
+    process.env.GOOGLE_CLIENT_SECRET = "csecret";
+  };
+
+  afterEach(async () => {
+    await admin.from("calendar_connections").delete().eq("org_id", orgId);
+  });
+
+  it("puts a meeting on its host's own calendar, and on the shared one for everyone else", async () => {
+    googleOn();
+    const jordanId = jordan.session.user.id;
+    const shared = await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "team@summit.example", refreshToken: "1//shared", scopes: [] });
+    const mine = await saveCalendarConnection(admin, { orgId, userId: jordanId, accountEmail: "jordan@gmail.example", refreshToken: "1//jordan", scopes: [], personal: true });
+
+    const forJordan = await resolveCalendar(admin, orgId, { hostUserId: jordanId });
+    expect(forJordan).toMatchObject({ mode: "live", connectionId: mine.connectionId, ownerUserId: jordanId });
+    expect(forJordan?.connection.credential).toBe("1//jordan");
+
+    const forPriya = await resolveCalendar(admin, orgId, { hostUserId: await userIdOf(SEED_USERS.priya) });
+    expect(forPriya).toMatchObject({ mode: "live", connectionId: shared.connectionId, ownerUserId: null });
+    expect(forPriya?.connection.credential).toBe("1//shared");
+  });
+
+  it("works with only personal calendars: the host's is live, someone without one gets demo", async () => {
+    googleOn();
+    await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "jordan@gmail.example", refreshToken: "1//jordan", scopes: [], personal: true });
+
+    expect((await resolveCalendar(admin, orgId, { hostUserId: jordan.session.user.id }))?.mode).toBe("live");
+    expect((await resolveCalendar(admin, orgId, { hostUserId: await userIdOf(SEED_USERS.priya) }))?.mode).toBe("demo");
+  });
+
+  it("keeps using the calendar that holds a meeting's event, even after the host connects their own", async () => {
+    const lead = await newLead();
+    const { connectionId: sharedId } = await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "team@summit.example", refreshToken: "1//shared", scopes: [] });
+
+    // Created on the shared calendar.
+    const onShared: CalendarRuntime = { ...freshRuntime(), connectionId: sharedId, ownerUserId: null };
+    const { meetingId } = await createMeeting(jordan.db, jordan.session, input(lead.leadId) as never, { calendar: onShared });
+    expect((await meetingRow(meetingId)).calendar_connection_id).toBe(sharedId);
+
+    // Jordan then connects a personal calendar; the existing meeting still resolves to the shared one.
+    googleOn();
+    await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "jordan@gmail.example", refreshToken: "1//jordan", scopes: [], personal: true });
+    const target = await getMeetingCalendarTarget(jordan.db, jordan.session, meetingId);
+    expect(target).toEqual({ hostUserId: jordan.session.user.id, connectionId: sharedId });
+    expect((await resolveCalendar(admin, orgId, target))?.connectionId).toBe(sharedId);
+  });
+
+  it("records a personal calendar's failure on that connection, not on the org's calendar health", async () => {
+    const lead = await newLead();
+    await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "team@summit.example", refreshToken: "1//shared", scopes: [] });
+    const { connectionId } = await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "jordan@gmail.example", refreshToken: "1//jordan", scopes: [], personal: true });
+
+    // A "live" personal runtime whose provider fails (the mock fails on @fail.test guests).
+    const personal: CalendarRuntime = { ...freshRuntime(), mode: "live", connectionId, ownerUserId: jordan.session.user.id };
+    const { calendarSync } = await createMeeting(jordan.db, jordan.session, input(lead.leadId, { guest_emails: "x@fail.test" }) as never, { calendar: personal, admin });
+    expect(calendarSync.status).toBe("failed");
+
+    expect((await getPersonalCalendarConnection(admin, orgId, jordan.session.user.id))?.last_error).toMatch(/unavailable/i);
+    const { data: health } = await admin.from("integration_health").select("status").eq("org_id", orgId).eq("provider", "google_calendar").single();
+    expect(health?.status).toBe("connected");
+
+    // The next success clears it.
+    const lead2 = await newLead();
+    await createMeeting(jordan.db, jordan.session, input(lead2.leadId) as never, { calendar: personal, admin });
+    expect((await getPersonalCalendarConnection(admin, orgId, jordan.session.user.id))?.last_error).toBeNull();
+  });
+
+  it("disconnecting a personal calendar leaves the shared one alone", async () => {
+    await saveCalendarConnection(admin, { orgId, userId: adminUser.session.user.id, accountEmail: "team@summit.example", refreshToken: "1//shared", scopes: [] });
+    const { connectionId } = await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "jordan@gmail.example", refreshToken: "1//jordan", scopes: [], personal: true });
+
+    await disconnectCalendar(admin, orgId, jordan.session.user.id, { personal: true });
+    expect(await getPersonalCalendarConnection(admin, orgId, jordan.session.user.id)).toBeNull();
+    expect(await getCalendarCredential(admin, connectionId)).toBeNull();
+    expect(await getCalendarConnection(admin, orgId)).not.toBeNull();
+  });
+
+  it("reconnecting replaces a member's personal connection instead of adding a second", async () => {
+    const first = await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "old@gmail.example", refreshToken: "1//old", scopes: [], personal: true });
+    const second = await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "new@gmail.example", refreshToken: "1//new", scopes: [], personal: true });
+    expect(second.connectionId).toBe(first.connectionId);
+    expect((await getPersonalCalendarConnection(admin, orgId, jordan.session.user.id))?.account_email).toBe("new@gmail.example");
+    expect(await getCalendarCredential(admin, second.connectionId)).toBe("1//new");
+  });
+
+  it("lets a member write only their own personal connection row, and never read tokens", async () => {
+    const priyaId = await userIdOf(SEED_USERS.priya);
+    const own = await jordan.db.from("calendar_connections").insert({ org_id: orgId, user_id: jordan.session.user.id, provider: "google", account_email: "j@x.example" });
+    expect(own.error).toBeNull();
+    const someoneElses = await jordan.db.from("calendar_connections").insert({ org_id: orgId, user_id: priyaId, provider: "google", account_email: "p@x.example" });
+    expect(someoneElses.error).not.toBeNull();
+
+    await saveCalendarConnection(admin, { orgId, userId: jordan.session.user.id, accountEmail: "j@x.example", refreshToken: "1//secret", scopes: [], personal: true });
+    const { data } = await jordan.db.from("calendar_tokens").select("*");
+    expect(data ?? []).toHaveLength(0);
+  });
+
+  it("cannot attach a personal connection to a member of another organization", async () => {
+    const attempt = await admin.from("calendar_connections").insert({ org_id: orgId, user_id: rival.adminId, provider: "google", account_email: "r@x.example" });
+    expect(attempt.error).not.toBeNull();
   });
 });

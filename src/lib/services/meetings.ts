@@ -9,15 +9,66 @@ import { UserError } from "@/lib/domain/errors";
 import { buildAttendees, calendarEventIdFor, defaultMeetingTitle, parseEmailList } from "@/lib/domain/meetings";
 import type { CalendarConnection, CalendarFailure, CalendarProvider } from "@/lib/ports/calendar";
 import { logActivity } from "@/lib/services/activities";
+import { recordPersonalCalendarResult } from "@/lib/services/calendar-connections";
 import { markConnected, markFailing } from "@/lib/services/integration-health";
 import { formatDateTime } from "@/lib/format";
 
-/** The provider + credentials the caller resolved for one org (see `composition/calendar.ts`). */
+/** The provider + credentials the caller resolved for one meeting (see `composition/calendar.ts`). */
 export interface CalendarRuntime {
   provider: CalendarProvider;
   connection: CalendarConnection;
   /** `demo` when a mock is standing in — no real event or invitation is created. */
   mode: "live" | "demo";
+  /** The `calendar_connections` row behind a live runtime; null for the mock. */
+  connectionId?: string | null;
+  /** Set when that connection is someone's personal calendar rather than the org's shared one. */
+  ownerUserId?: string | null;
+}
+
+/** Which calendar a meeting belongs on: its host's, or the one that already holds its event. */
+export interface CalendarTarget {
+  hostUserId?: string | null;
+  connectionId?: string | null;
+}
+
+/** The calendar target of an existing meeting, so the caller can resolve the right runtime for it. */
+export async function getMeetingCalendarTarget(
+  db: SupabaseClient,
+  session: SessionContext,
+  meetingId: string
+): Promise<CalendarTarget> {
+  const { data, error } = await db
+    .from("meetings")
+    .select("salesperson_id, calendar_connection_id")
+    .eq("id", meetingId)
+    .eq("org_id", session.orgId)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load meeting: ${error.message}`);
+  if (!data) throw new UserError("Meeting not found.");
+  return {
+    hostUserId: (data.salesperson_id as string | null) ?? null,
+    connectionId: (data.calendar_connection_id as string | null) ?? null,
+  };
+}
+
+/**
+ * Health bookkeeping for a live calendar call: the shared calendar reports
+ * through integration_health; a personal one on its own connection row, so
+ * one rep's expired Google grant doesn't flag the whole org's calendar as failing.
+ */
+async function recordCalendarHealth(
+  admin: SupabaseClient,
+  orgId: string,
+  runtime: CalendarRuntime,
+  error: string | null
+): Promise<void> {
+  if (runtime.ownerUserId && runtime.connectionId) {
+    await recordPersonalCalendarResult(admin, orgId, runtime.connectionId, error);
+  } else if (error) {
+    await markFailing(admin, orgId, "google_calendar", error);
+  } else {
+    await markConnected(admin, orgId, "google_calendar");
+  }
 }
 
 /**
@@ -92,7 +143,7 @@ async function applyEventOutcome(
   if (!outcome.ok) {
     await db.from("meetings").update({ sync_error: outcome.error }).eq("id", meetingId).eq("org_id", session.orgId);
     if (admin && runtime.mode === "live" && (outcome.code === "auth" || outcome.code === "other")) {
-      await markFailing(admin, session.orgId, "google_calendar", outcome.error);
+      await recordCalendarHealth(admin, session.orgId, runtime, outcome.error);
     }
     return { status: "failed", error: outcome.error };
   }
@@ -101,6 +152,7 @@ async function applyEventOutcome(
     .from("meetings")
     .update({
       provider: runtime.provider.id,
+      calendar_connection_id: runtime.connectionId ?? null,
       external_event_id: outcome.externalEventId,
       external_event_url: outcome.eventUrl,
       meeting_url: outcome.meetingUrl ?? existingUrl,
@@ -108,7 +160,7 @@ async function applyEventOutcome(
     })
     .eq("id", meetingId)
     .eq("org_id", session.orgId);
-  if (admin && runtime.mode === "live") await markConnected(admin, session.orgId, "google_calendar");
+  if (admin && runtime.mode === "live") await recordCalendarHealth(admin, session.orgId, runtime, null);
   return { status: "synced", meetingUrl: outcome.meetingUrl ?? existingUrl, demo: runtime.mode === "demo" };
 }
 

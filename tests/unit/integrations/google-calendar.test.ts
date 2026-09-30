@@ -205,6 +205,17 @@ describe("signed OAuth state", () => {
     expect(verifySignedState(secret, createSignedState(secret, "org-1", "user-1"))).toEqual({ orgId: "org-1", userId: "user-1" });
   });
 
+  it("carries a signed personal flag that can't be added by editing the payload", () => {
+    const personal = createSignedState(secret, "org-1", "user-1", { personal: true });
+    expect(verifySignedState(secret, personal)).toEqual({ orgId: "org-1", userId: "user-1", personal: true });
+
+    const [, signature] = createSignedState(secret, "org-1", "user-1").split(".");
+    const flipped = Buffer.from(
+      JSON.stringify({ orgId: "org-1", userId: "user-1", personal: true, nonce: "x", issuedAt: Date.now() })
+    ).toString("base64url");
+    expect(verifySignedState(secret, `${flipped}.${signature}`)).toBeNull();
+  });
+
   it("rejects a state signed with another secret, a tampered payload, and junk", () => {
     const state = createSignedState(secret, "org-1", "user-1");
     expect(verifySignedState("other-secret", state)).toBeNull();

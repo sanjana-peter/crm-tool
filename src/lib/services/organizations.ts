@@ -194,7 +194,8 @@ export async function inviteMember(
 
   const { error: memberError } = await admin
     .from("organization_members")
-    .insert({ org_id: params.orgId, user_id: userId, role: params.role });
+    // Salespeople join the round-robin rotation by default; managers opt in from /team.
+    .insert({ org_id: params.orgId, user_id: userId, role: params.role, in_rotation: params.role === "salesperson" });
 
   if (memberError) {
     await admin.auth.admin.deleteUser(userId).catch(() => {});

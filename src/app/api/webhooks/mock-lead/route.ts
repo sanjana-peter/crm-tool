@@ -4,6 +4,7 @@ import { getMockWebhookSecret } from "@/lib/integrations/mock/config";
 import { MockLeadSource } from "@/lib/integrations/mock/lead-source";
 import { getRequestId, logger } from "@/lib/observability/logger";
 import { checkRateLimit, clientIp, tooManyRequests } from "@/lib/security/rate-limit";
+import { assignmentStrategyFor } from "@/lib/services/assignment";
 import { captureLead, inboundToCaptureInput, type CaptureResult } from "@/lib/services/capture";
 import { markConnected, markFailing } from "@/lib/services/integration-health";
 import { beginReceipt, finishReceipt } from "@/lib/services/webhooks";
@@ -78,7 +79,8 @@ export async function POST(request: NextRequest) {
       const outcome = await captureLead(
         admin,
         { orgId, userId: null, role: null },
-        inboundToCaptureInput(lead)
+        inboundToCaptureInput(lead),
+        { assignment: await assignmentStrategyFor(admin, orgId) }
       );
       await finishReceipt(admin, receipt.id, { status: outcome.outcome === "duplicate" ? "duplicate" : "processed" });
       results.push({

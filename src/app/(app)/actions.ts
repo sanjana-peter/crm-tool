@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSession, type SessionContext } from "@/lib/auth/session";
 import { canAccessLead } from "@/lib/domain/permissions";
 import { UserError } from "@/lib/domain/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -135,8 +135,19 @@ export async function logCallAction(input: CallLogInput): Promise<ActionResult<{
 export type MeetingSaveData = { calendar: meetingsService.CalendarSync };
 
 /** Resolved only when needed: a plain "log a meeting with a link" never touches calendar credentials. */
-async function calendarFor(orgId: string, needed: boolean) {
-  return needed ? resolveCalendar(createAdminClient(), orgId) : null;
+async function calendarFor(orgId: string, needed: boolean, target: meetingsService.CalendarTarget) {
+  return needed ? resolveCalendar(createAdminClient(), orgId, target) : null;
+}
+
+/** An existing meeting's calendar: the one holding its event, else its host's. */
+async function calendarForMeeting(
+  db: Awaited<ReturnType<typeof createClient>>,
+  session: SessionContext,
+  meetingId: string,
+  needed: boolean
+) {
+  if (!needed) return null;
+  return calendarFor(session.orgId, true, await meetingsService.getMeetingCalendarTarget(db, session, meetingId));
 }
 
 export async function createMeetingAction(input: MeetingFormInput): Promise<ActionResult<MeetingSaveData>> {
@@ -148,7 +159,9 @@ export async function createMeetingAction(input: MeetingFormInput): Promise<Acti
   return runAction<MeetingSaveData>(
     "createMeeting",
     async () => {
-      const calendar = await calendarFor(session.orgId, parsed.data.use_calendar);
+      const calendar = await calendarFor(session.orgId, parsed.data.use_calendar, {
+        hostUserId: parsed.data.salesperson_id || session.user.id,
+      });
       const result = await meetingsService.createMeeting(db, session, parsed.data, { calendar, admin: createAdminClient() });
       return { calendar: result.calendarSync };
     },
@@ -168,7 +181,7 @@ export async function rescheduleMeetingAction(
   return runAction<MeetingSaveData>(
     "rescheduleMeeting",
     async () => {
-      const calendar = await calendarFor(session.orgId, true);
+      const calendar = await calendarForMeeting(db, session, meetingId, true);
       const result = await meetingsService.rescheduleMeeting(
         db,
         session,
@@ -190,8 +203,12 @@ export async function syncMeetingCalendarAction(meetingId: string): Promise<Acti
   return runAction<MeetingSaveData>(
     "syncMeetingCalendar",
     async () => {
-      const calendar = await calendarFor(session.orgId, true);
-      if (!calendar) throw new UserError("No calendar is connected. An admin can connect Google Calendar in Settings → Integrations.");
+      const calendar = await calendarForMeeting(db, session, meetingId, true);
+      if (!calendar) {
+        throw new UserError(
+          "No calendar is connected. Connect your own Google Calendar in Settings, or ask an admin to connect a shared one."
+        );
+      }
       return { calendar: await meetingsService.syncMeetingToCalendar(db, session, meetingId, calendar, createAdminClient()) };
     },
     leadPaths()
@@ -207,7 +224,7 @@ export async function updateMeetingStatusAction(meetingId: string, status: strin
   return runAction(
     "updateMeetingStatus",
     async () => {
-      const calendar = await calendarFor(session.orgId, parsed.data.status === "cancelled");
+      const calendar = await calendarForMeeting(db, session, meetingId, parsed.data.status === "cancelled");
       await meetingsService.updateMeetingStatus(db, session, meetingId, parsed.data.status, { calendar });
     },
     leadPaths()

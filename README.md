@@ -25,7 +25,7 @@ one screen and sees what is being neglected.
 | **Integration health** | One page: Meta, WhatsApp and Google as connected / failing / disconnected / demo, with the last safe error. |
 
 Out of scope on purpose (see [`docs/v1-scope.md`](docs/v1-scope.md)): telephony,
-call recording, automation/workflow engines, round-robin routing, payments,
+call recording, automation/workflow engines, payments,
 email marketing, funnels, BI, native apps.
 
 ## Demo mode

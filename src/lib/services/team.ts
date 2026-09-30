@@ -9,7 +9,7 @@ import { recordAudit } from "@/lib/services/audit";
 export async function listOrgMembers(supabase: SupabaseClient, session: SessionContext) {
   const { data, error } = await supabase
     .from("organization_members")
-    .select("id, user_id, role, is_active, created_at, profile:user_id(id, email, full_name, avatar_url)")
+    .select("id, user_id, role, is_active, in_rotation, created_at, profile:user_id(id, email, full_name, avatar_url)")
     .eq("org_id", session.orgId)
     .order("created_at");
 

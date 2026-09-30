@@ -62,11 +62,12 @@ reseller · marketplace · advanced forecasting/BI · native mobile apps.
 
 | Item | Version | Where it plugs in |
 |---|---|---|
-| Round-robin / load-based assignment | v2 | new `AssignmentStrategy` (`domain/assignment.ts`) |
+| Round-robin assignment | **done (v2)** | `roundRobinAssignment` + `next_rotation_assignee` (D-028) |
+| Load-based assignment | v2 | new `AssignmentStrategy` (`domain/assignment.ts`) |
 | Automation (e.g. auto-nudge an unclaimed Meta lead) | v2 | consume timeline events / `JobQueue` (D-008) |
 | Ad-spend / ROI | v2 | new adapter + table beside `meta_lead_attribution` |
 | Auto-create a lead from an inbound WhatsApp (click-to-WhatsApp ads) | v2 | `handleInbound` "unmatched" branch → `captureLead` |
-| Per-salesperson calendars | v2 | `CalendarConnection` already carries a connection id |
+| Per-salesperson calendars | **done (v2)** | personal `calendar_connections` rows (D-029) |
 | DaySchedule / Calendly API | v2 | new `CalendarProvider` |
 | Multiple pipelines per org | v2 | `pipelines` table exists; needs UI |
 | Custom fields, vertical templates | v3 | — |
@@ -74,8 +75,10 @@ reseller · marketplace · advanced forecasting/BI · native mobile apps.
 
 ## Known limitations of V1
 
-- One WhatsApp number and one Google account **per organization** (shared
-  business number; the meeting owner is the connected account).
+- One WhatsApp number **per organization** (shared business number).
+- Google Calendar: one shared connection per organization plus an optional
+  personal one per member; a meeting goes on its host's own calendar if they
+  connected one, else the shared one.
 - Inbound WhatsApp from an unknown number is logged as *unmatched*, not turned
   into a lead.
 - Kanban drag-and-drop is mouse-only (the Change Stage dialog is the accessible
