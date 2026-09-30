@@ -20,6 +20,8 @@ export const META_OAUTH_SCOPES = [
   "pages_read_engagement",
   "leads_retrieval",
   "ads_read",
+  // Pages owned by a Business portfolio don't appear in /me/accounts without it.
+  "business_management",
 ] as const;
 
 function readAppUrl(): string {
@@ -31,6 +33,20 @@ function readAppUrl(): string {
   if (vercel) return `https://${vercel}`;
 
   return "http://localhost:3000";
+}
+
+const DEFAULT_GRAPH_VERSION = "v23.0";
+
+/**
+ * A blank or malformed version silently changes what Graph thinks the path
+ * means (`//oauth/access_token` → "nonexisting field (access_token)"), so
+ * accept "v23.0" or "23.0" and fall back to the default for anything else.
+ */
+function readGraphVersion(): string {
+  const raw = process.env.META_GRAPH_VERSION?.trim().replace(/^["']|["']$/g, "");
+  if (!raw) return DEFAULT_GRAPH_VERSION;
+  const version = raw.startsWith("v") ? raw : `v${raw}`;
+  return /^v\d+\.\d+$/.test(version) ? version : DEFAULT_GRAPH_VERSION;
 }
 
 /**
@@ -48,7 +64,7 @@ export function getMetaConfig(): MetaConfig | null {
     appId,
     appSecret,
     webhookVerifyToken,
-    graphVersion: process.env.META_GRAPH_VERSION ?? "v23.0",
+    graphVersion: readGraphVersion(),
     appUrl: readAppUrl(),
   };
 }

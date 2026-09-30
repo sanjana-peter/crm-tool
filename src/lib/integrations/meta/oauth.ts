@@ -65,5 +65,8 @@ export function buildAuthorizeUrl(config: MetaConfig, state: string): string {
   url.searchParams.set("state", state);
   url.searchParams.set("scope", META_OAUTH_SCOPES.join(","));
   url.searchParams.set("response_type", "code");
+  // Re-show the permission and Page pickers on every connect; otherwise a
+  // Page left unticked the first time stays hidden from /me/accounts.
+  url.searchParams.set("auth_type", "rerequest");
   return url.toString();
 }
