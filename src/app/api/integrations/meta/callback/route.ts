@@ -44,16 +44,19 @@ export async function GET(request: NextRequest) {
     return back(request, { error: "state_mismatch" });
   }
 
+  // Names the Graph call in flight so a failure says which step Meta rejected.
+  let step = "code exchange";
   try {
     const graph = new MetaGraphClient(config);
 
     const shortLived = await graph.exchangeCodeForToken(code, getOAuthRedirectUri(config));
+    step = "long-lived token exchange";
     const longLived = await graph.exchangeForLongLivedToken(shortLived.access_token);
 
-    const [me, pages] = await Promise.all([
-      graph.getMe(longLived.access_token),
-      graph.listPages(longLived.access_token),
-    ]);
+    step = "fetching profile";
+    const me = await graph.getMe(longLived.access_token);
+    step = "listing Pages";
+    const pages = await graph.listPages(longLived.access_token);
 
     if (pages.length === 0) {
       return back(request, { error: "no_pages" });
@@ -63,6 +66,7 @@ export async function GET(request: NextRequest) {
       ? new Date(Date.now() + longLived.expires_in * 1000).toISOString()
       : null;
 
+    step = "saving connection";
     const admin = createAdminClient();
     await saveConnection(admin, {
       orgId: session.orgId,
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     return back(request, {
       error: "exchange_failed",
-      detail: e instanceof Error ? e.message : "Unknown error",
+      detail: `${step}: ${e instanceof Error ? e.message : "Unknown error"}`,
     });
   }
 }

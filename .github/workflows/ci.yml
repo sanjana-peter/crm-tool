@@ -76,6 +76,12 @@ jobs:
           SIGNUP_RATE_LIMIT_PER_IP=100000
           RESET_RATE_LIMIT_PER_IP=100000
           RESET_RATE_LIMIT_PER_EMAIL=100000
+          # Placeholder Meta credentials: the webhook route answers 503 when
+          # these are unset, and tests/e2e/meta-ingestion.spec.ts signs its
+          # payloads with exactly these values (see .env.example).
+          META_APP_ID=local-dev-app-id
+          META_APP_SECRET=local-dev-app-secret
+          META_WEBHOOK_VERIFY_TOKEN=local-dev-verify-token
           EOF
 
       - name: Apply migrations and seed
@@ -83,6 +89,12 @@ jobs:
 
       - name: Integration tests
         run: npm run test:integration
+
+      # The integration tests write into the seeded demo org (e.g. they mark
+      # Jordan's backlog contacted and add dozens of unassigned leads), and the
+      # e2e suite asserts on the pristine seed — so re-seed between the two.
+      - name: Re-seed database for e2e
+        run: npx supabase db reset
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
