@@ -19,6 +19,8 @@ export const META_OAUTH_SCOPES = [
   "pages_manage_metadata",
   "pages_read_engagement",
   "leads_retrieval",
+  // Graph rejects GET /{page}/leadgen_forms and lead reads without it (#200).
+  "pages_manage_ads",
   "ads_read",
   // Pages owned by a Business portfolio don't appear in /me/accounts without it.
   "business_management",
