@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getOrganization } from "@/lib/services/settings";
 import { getConnection as getMetaConnection } from "@/lib/services/meta";
 import { getConnection as getWhatsAppConnection } from "@/lib/services/whatsapp";
+import { getInstagramConnection } from "@/lib/services/instagram";
 import { getCalendarConnection, getPersonalCalendarConnection } from "@/lib/services/calendar-connections";
 import { getGoogleConfig } from "@/lib/integrations/google/config";
 import { formatDate } from "@/lib/format";
@@ -63,10 +64,11 @@ export default async function SettingsPage({
   const supabase = await createClient();
   const isAdmin = permissions.canEditSettings(session.role);
 
-  const [organization, metaConnection, whatsAppConnection, calendarConnection, myCalendar] = await Promise.all([
+  const [organization, metaConnection, whatsAppConnection, instagramConnection, calendarConnection, myCalendar] = await Promise.all([
     getOrganization(supabase, session.orgId),
     isAdmin ? getMetaConnection(supabase, session.orgId) : Promise.resolve(null),
     isAdmin ? getWhatsAppConnection(supabase, session.orgId) : Promise.resolve(null),
+    isAdmin ? getInstagramConnection(supabase, session.orgId) : Promise.resolve(null),
     getCalendarConnection(supabase, session.orgId),
     getPersonalCalendarConnection(supabase, session.orgId, session.user.id),
   ]);
@@ -122,6 +124,12 @@ export default async function SettingsPage({
             name="WhatsApp"
             description="Send approved WhatsApp templates to leads from their detail page."
             connected={Boolean(whatsAppConnection)}
+          />
+          <IntegrationRow
+            href="/settings/integrations/instagram"
+            name="Instagram DMs"
+            description="Turn DMs to your Instagram account into leads, and reply from the lead's page."
+            connected={Boolean(instagramConnection)}
           />
           <IntegrationRow
             href="/settings/integrations/google"

@@ -8,10 +8,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { leadPaths, runAction, type ActionResult } from "@/lib/actions/run";
 import { resolveCalendar } from "@/lib/composition/calendar";
 import { resolveWhatsApp } from "@/lib/composition/whatsapp";
+import { resolveInstagram } from "@/lib/composition/instagram";
+import { buildMockInstagramDm } from "@/lib/integrations/instagram/mock-adapter";
 import { mockProvidersEnabled } from "@/lib/integrations/mode";
 import type { ConsentStatus } from "@/lib/domain/whatsapp";
 import * as conversationsService from "@/lib/services/conversations";
+import * as instagramConversations from "@/lib/services/instagram-conversations";
 import {
+  leadFormFieldsSchema,
   leadFormSchema,
   leadStatusChangeSchema,
   leadAssignSchema,
@@ -72,7 +76,9 @@ export async function createLeadAction(input: LeadFormInput): Promise<ActionResu
 }
 
 export async function updateLeadAction(leadId: string, input: LeadFormInput): Promise<ActionResult> {
-  const parsed = leadFormSchema.safeParse(input);
+  // The "phone or email" rule is checked by the service, which knows whether
+  // the contact is reachable on Instagram instead.
+  const parsed = leadFormFieldsSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: firstIssue(parsed.error, "Invalid input") };
 
   const session = await requireSession();
@@ -405,6 +411,62 @@ export async function simulateWhatsAppReplyAction(leadId: string, text: string):
       });
 
       await conversationsService.handleWhatsAppEvents(admin, {
+        provider: runtime.provider,
+        events: runtime.provider.parseWebhook(payload),
+        requestId: crypto.randomUUID(),
+      });
+    },
+    leadPaths(leadId)
+  );
+}
+
+export async function sendInstagramReplyAction(leadId: string, body: string): Promise<ActionResult<WhatsAppSendData>> {
+  const session = await requireSession();
+  return runAction<WhatsAppSendData>(
+    "sendInstagramReply",
+    async () => {
+      await requireLeadAccess(leadId);
+      const runtime = await resolveInstagram(createAdminClient(), session.orgId);
+      if (!runtime) throw new UserError("Instagram isn't connected. An admin can connect it in Settings → Integrations.");
+      const result = await instagramConversations.sendInstagramText(createAdminClient(), runtime, {
+        orgId: session.orgId,
+        leadId,
+        body,
+        sentByUserId: session.user.id,
+      });
+      return result.status === "sent" ? { status: "sent" } : { status: "failed", error: result.error };
+    },
+    leadPaths(leadId)
+  );
+}
+
+/** Demo mode only: the lead DMs the org's Instagram account again, through the real inbound path. */
+export async function simulateInstagramReplyAction(leadId: string, text: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const admin = createAdminClient();
+  return runAction(
+    "simulateInstagramReply",
+    async () => {
+      if (!mockProvidersEnabled()) throw new UserError("Simulated replies are only available in demo mode.");
+      await requireLeadAccess(leadId);
+      const runtime = await resolveInstagram(admin, session.orgId);
+      if (!runtime || runtime.mode !== "demo") throw new UserError("Simulated replies are only available in demo mode.");
+
+      const { data: lead } = await admin
+        .from("leads")
+        .select("contact:contacts!leads_org_contact_fkey(instagram_user_id)")
+        .eq("id", leadId)
+        .eq("org_id", session.orgId)
+        .maybeSingle();
+      const contact = (Array.isArray(lead?.contact) ? lead?.contact[0] : lead?.contact) as { instagram_user_id: string | null } | null;
+      if (!contact?.instagram_user_id) throw new UserError("This lead has never messaged you on Instagram.");
+
+      const payload = buildMockInstagramDm({
+        accountId: runtime.connection.accountId,
+        senderId: contact.instagram_user_id,
+        text: text.trim().slice(0, 1000) || "Hi",
+      });
+      await instagramConversations.handleInstagramEvents(admin, {
         provider: runtime.provider,
         events: runtime.provider.parseWebhook(payload),
         requestId: crypto.randomUUID(),

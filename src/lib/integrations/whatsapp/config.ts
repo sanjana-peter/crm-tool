@@ -16,10 +16,9 @@ export const WHATSAPP_OAUTH_SCOPES = [
 ] as const;
 
 /**
- * `getMetaConfig()` also requires META_WEBHOOK_VERIFY_TOKEN even though
- * WhatsApp sending has no webhook of its own — that variable exists for the
- * Meta Ads webhook, and the two integrations share one Meta app's config.
- * Set all three even if only WhatsApp is wanted.
+ * `getMetaConfig()` requires all three Meta variables. WhatsApp needs
+ * META_WEBHOOK_VERIFY_TOKEN for its own webhook's handshake
+ * (`/api/webhooks/whatsapp`), and shares the app id/secret with Meta Ads.
  */
 export function requireWhatsAppConfig(): MetaConfig {
   const config = getMetaConfig();

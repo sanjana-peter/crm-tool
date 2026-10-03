@@ -92,6 +92,32 @@ API payload shape parsed by the real parser, signed with `MOCK_WEBHOOK_SECRET`; 
 `phone_number_id` of `mock:<orgId>` addresses a tenant directly (only honoured for
 the mock provider — a real Meta signature cannot use it).
 
+### Instagram DMs
+
+```ts
+interface InstagramProvider {
+  sendText(conn, { recipientId, body }): Promise<SendOutcome>;  // never throws; 24-hour rule enforced by the service
+  getProfile(conn, igsid): Promise<{ name; username } | null>; // never throws
+  verifyWebhook(rawBody, headers): boolean;
+  parseWebhook(rawBody): InstagramEvent[];   // message | echo | deleted | read
+}
+```
+
+Instagram API with Instagram Login (`graph.instagram.com`): each org connects its
+own professional account; no Facebook Page. Same failure vocabulary as WhatsApp.
+A DM from an unknown sender is captured as a lead (`captureLead`, external id =
+the sender's IGSID, so concurrent first DMs make one lead). Replies are allowed
+only within 24 hours of the customer's last DM — Instagram has no templates.
+The webhook signature is accepted against the Instagram app secret or the Meta
+app secret (Meta has used both). The long-lived token is renewed daily by
+`/api/cron/instagram-token-refresh`.
+
+**Mock behaviour:** sends succeed with a fake id, except recipients ending `0000`
+(permanent) or `9999` (retryable). A sender id `mock.<username>` gives the
+profile `@username`; an account id of `mock:<orgId>` addresses a tenant directly
+(mock provider only). Settings → Integrations → Instagram has a "simulate a DM"
+form in demo mode.
+
 ### Calendar
 
 ```ts
@@ -117,6 +143,8 @@ at `@fail.test` makes it fail (retryable).
 |---|---|---|
 | `POST /api/webhooks/meta` | `X-Hub-Signature-256` HMAC over the raw body | `lead_inquiries` + unique `(org, provider, external_id)`; every delivery logged in `meta_webhook_events` |
 | `GET/POST /api/webhooks/whatsapp` | verify token (GET); Meta HMAC or mock HMAC (POST) | `webhook_receipts` unique `(provider, event_key)`; message id unique per org; status changes are monotonic |
+| `GET/POST /api/webhooks/instagram` | verify token (GET); Meta HMAC (Instagram or Meta app secret) or mock HMAC (POST) | `webhook_receipts` unique `(provider, event_key)`; message id unique per org (a CRM send's echo dedupes on it); first DM → `lead_inquiries` keyed on the sender |
+| `GET /api/cron/instagram-token-refresh` | `Authorization: Bearer $CRON_SECRET` (Vercel Cron) | refreshes only tokens that are due |
 | `POST /api/webhooks/mock-lead` | mock HMAC; **404 unless mocks are enabled** | `webhook_receipts` + `lead_inquiries` |
 | `GET /api/health` | public, uninformative | — |
 

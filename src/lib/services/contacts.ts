@@ -14,6 +14,8 @@ export interface ContactRow {
   additional_phone: string | null;
   email: string | null;
   email_normalized: string | null;
+  instagram_user_id: string | null;
+  instagram_username: string | null;
   source: string;
   source_detail: string | null;
   tags: string[];
@@ -29,6 +31,7 @@ export interface NewContact {
   phone?: string | null;
   additionalPhone?: string | null;
   email?: string | null;
+  instagramUsername?: string | null;
   source: string;
   sourceDetail?: string | null;
   tags?: string[];
@@ -36,7 +39,7 @@ export interface NewContact {
 }
 
 /**
- * Finds the contact for a phone/email in the caller's org, whoever owns it.
+ * Finds the contact for a phone/email/Instagram id in the caller's org, whoever owns it.
  * Goes through a SECURITY DEFINER function because a salesperson's RLS view
  * hides colleagues' contacts, yet dedupe must still see them — otherwise two
  * reps would race into the unique index instead of joining the same person.
@@ -44,12 +47,13 @@ export interface NewContact {
 export async function findContactForCapture(
   db: SupabaseClient,
   orgId: string,
-  identity: Pick<ContactIdentity, "phoneNormalized" | "emailNormalized">
+  identity: Pick<ContactIdentity, "phoneNormalized" | "emailNormalized" | "instagramUserId">
 ): Promise<string | null> {
   const { data, error } = await db.rpc("find_contact_for_capture", {
     p_org: orgId,
     p_phone_normalized: identity.phoneNormalized,
     p_email_normalized: identity.emailNormalized,
+    p_instagram_user_id: identity.instagramUserId ?? null,
   });
   if (error) throw new Error(`Failed to look up contact: ${error.message}`);
   return (data as string | null) ?? null;
@@ -79,6 +83,8 @@ export async function createContact(
       additional_phone_normalized: identity.additionalPhoneNormalized,
       email: input.email?.trim() || null,
       email_normalized: identity.emailNormalized,
+      instagram_user_id: identity.instagramUserId ?? null,
+      instagram_username: input.instagramUsername?.trim().replace(/^@/, "") || null,
       source: input.source,
       source_detail: input.sourceDetail ?? null,
       tags: input.tags ?? [],

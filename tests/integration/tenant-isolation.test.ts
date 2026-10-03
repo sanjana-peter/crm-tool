@@ -35,6 +35,9 @@ const TENANT_TABLES = [
   "call_logs",
   "lead_inquiries",
   "whatsapp_messages",
+  "instagram_messages",
+  "instagram_connections",
+  "conversations",
   "meta_lead_attribution",
   "pipelines",
   "lead_statuses",
@@ -234,7 +237,7 @@ describe("changing another organization's data", () => {
 
 describe("secrets and system tables", () => {
   it("integration token tables are unreadable to every client role", async () => {
-    for (const table of ["meta_user_tokens", "meta_page_tokens", "whatsapp_user_tokens", "rate_limits"]) {
+    for (const table of ["meta_user_tokens", "meta_page_tokens", "whatsapp_user_tokens", "instagram_tokens", "rate_limits"]) {
       for (const db of [adminA.db, jordan.db, anonClient()]) {
         const { data } = await db.from(table).select("*").limit(1);
         expect(data ?? [], table).toHaveLength(0);

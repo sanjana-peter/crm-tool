@@ -250,12 +250,18 @@ export async function updateLead(
 ) {
   const { data: lead, error: leadError } = await db
     .from("leads")
-    .select("id, contact_id")
+    .select("id, contact_id, contact:contacts!leads_org_contact_fkey(instagram_user_id)")
     .eq("id", leadId)
     .eq("org_id", session.orgId)
     .maybeSingle();
   if (leadError) throw new Error(`Failed to load lead: ${leadError.message}`);
   if (!lead) throw new Error("Lead not found.");
+
+  // Someone who only ever DMed us on Instagram has neither; anyone else needs one.
+  const contact = (Array.isArray(lead.contact) ? lead.contact[0] : lead.contact) as { instagram_user_id: string | null } | null;
+  if (!input.phone?.trim() && !input.email?.trim() && !contact?.instagram_user_id) {
+    throw new CaptureError("Provide at least a phone number or an email.");
+  }
 
   const country = await getDefaultCountry(db, session.orgId);
   const identity = contactIdentity(

@@ -14,7 +14,8 @@ dependency rules), [`docs/domain-model.md`](docs/domain-model.md),
 
 A multi-tenant CRM for lead-driven, WhatsApp-first, phone-heavy service
 businesses (India first). Leads come mainly from Meta lead ads; WhatsApp is the
-follow-up channel; meetings go on Google Calendar with Meet. Modular monolith:
+follow-up channel, alongside the org's own Instagram account (DMs become leads);
+meetings go on Google Calendar with Meet. Modular monolith:
 one Next.js app, one Postgres database (Supabase), no separate backend.
 
 **Stack:** Next.js 16 (App Router, Turbopack), React 19, Supabase (Postgres +
@@ -34,11 +35,13 @@ to Vercel + hosted Supabase, or as a Docker image (`output: "standalone"`).
 domain/        Pure business rules. No I/O, no framework, no other layer
                (enforced by ESLint). phone, contact identity, due/overdue in an
                org timezone, call outcomes, opportunity/stage rules, permissions,
-               team invariants, WhatsApp window/status rules, meeting attendees.
+               team invariants, WhatsApp/Instagram window/status rules, meeting
+               attendees, Instagram token-refresh timing.
 ports/         Interfaces the core depends on: LeadSourceProvider,
-               WhatsAppProvider, CalendarProvider.
+               WhatsAppProvider, InstagramProvider (+ InstagramAccountApi),
+               CalendarProvider.
 services/      Application services (use-cases): DB + ports. One file per module.
-integrations/  Adapters implementing ports (meta, whatsapp, google, mock).
+integrations/  Adapters implementing ports (meta, whatsapp, instagram, google, mock).
                Never import services.
 composition/   THE place that picks live vs. mock adapters per org.
 security/      crypto (AES-GCM), signature (HMAC), oauth-state, rate-limit, limits.
@@ -84,8 +87,8 @@ idempotency guarantee) → service → finish receipt → 200. See `docs/integra
    key). Nearly everything uses it. RLS filters every query by org and role.
 2. **Admin client** (`supabase/admin.ts`, service role, **bypasses RLS**). Only
    for: organization bootstrap, integration credentials (tables no client role
-   can read), webhook ingestion (no user session), rate limiting, WhatsApp/calendar
-   sends (which read tokens), and Auth admin calls. Every admin-client query
+   can read), webhook ingestion (no user session), rate limiting, WhatsApp/Instagram/
+   calendar sends (which read tokens), the token-refresh cron, and Auth admin calls. Every admin-client query
    filters `org_id` by hand — and the database backs that with composite foreign
    keys so a mistake can't create a cross-tenant reference.
 
@@ -102,14 +105,17 @@ trigger enforces it even against direct API calls (D-012).
 
 ### Contacts vs. opportunities
 
-`contacts` is the person (normalized phone/email = dedupe keys, unique per org).
+`contacts` is the person (normalized phone/email = dedupe keys, unique per org;
+`instagram_user_id` is a third key, for someone who has only ever DMed — such a
+contact may have no phone or email at all).
 `leads` **is** the opportunity (kept name; D-002): stage (`lead_statuses`, under
 `pipelines`), assignee, value, priority, `next_action_at`, `lost_reason`,
 `first_contacted_at`, `closed_at`. The lead's name/phone/email columns are a
 trigger-maintained display copy of the contact.
 
 **`captureLead()` (`services/capture.ts`) is the only way a new lead is created**
-— manual entry, the Meta webhook and backfill, and the test source all call it.
+— manual entry, the Meta webhook and backfill, an Instagram DM from a stranger,
+and the test source all call it.
 Replay → `duplicate`; a returning person with an open opportunity → `merged`
 (timeline entry, no duplicate); otherwise create. Idempotency is
 `lead_inquiries` + unique indexes, so concurrent deliveries create exactly one
@@ -119,7 +125,8 @@ lead.
 (`domain/assignment.ts`), chosen by `services/assignment.ts` from
 `organizations.lead_assignment_mode`: `manual` (explicit assignee or the
 unassigned pool) or `round_robin`. Round-robin applies where nobody is choosing
-— Meta webhook/backfill, file import, the test source — never to manual entry.
+— Meta webhook/backfill, Instagram DMs, file import, the test source — never to
+manual entry.
 An explicit assignee (including Meta's default assignee) always wins. The turn
 is taken by `next_rotation_assignee()` under a row lock on
 `assignment_rotation`, over active members with `in_rotation` (D-028).
@@ -169,15 +176,15 @@ config or `null`, never throws at import), the adapter class, `mapping.ts`, and
 `types.ts`. Services never import an adapter; server actions/routes obtain the
 runtime from `composition/` and pass it in. Connection management (OAuth, token
 storage, discovery) is in `services/meta.ts`, `services/whatsapp.ts`,
-`services/calendar-connections.ts`.
+`services/instagram.ts`, `services/calendar-connections.ts`.
 
-| | Meta Ads | WhatsApp | Google Calendar |
-|---|---|---|---|
-| Port | `LeadSourceProvider` | `WhatsAppProvider` | `CalendarProvider` |
-| Real adapter | `integrations/meta/` | `whatsapp/cloud-adapter.ts` | `google/calendar-adapter.ts` |
-| Mock | `mock/lead-source.ts` | `whatsapp/mock-adapter.ts` | `google/mock-adapter.ts` |
-| Inbound | `POST /api/webhooks/meta` (+ backfill) | `POST /api/webhooks/whatsapp` (messages, statuses) | — |
-| Core service | `capture.ts` | `conversations.ts` | `meetings.ts` |
+| | Meta Ads | WhatsApp | Instagram DMs | Google Calendar |
+|---|---|---|---|---|
+| Port | `LeadSourceProvider` | `WhatsAppProvider` | `InstagramProvider` | `CalendarProvider` |
+| Real adapter | `integrations/meta/` | `whatsapp/cloud-adapter.ts` | `instagram/graph-adapter.ts` | `google/calendar-adapter.ts` |
+| Mock | `mock/lead-source.ts` | `whatsapp/mock-adapter.ts` | `instagram/mock-adapter.ts` | `google/mock-adapter.ts` |
+| Inbound | `POST /api/webhooks/meta` (+ backfill) | `POST /api/webhooks/whatsapp` (messages, statuses) | `POST /api/webhooks/instagram` (messages, echoes, unsends, reads) | — |
+| Core service | `capture.ts` | `conversations.ts` | `instagram-conversations.ts` | `meetings.ts` |
 
 Calendars: an org has at most one *shared* `calendar_connections` row
 (`user_id` null, admin-managed) and one *personal* row per member (managed from
@@ -189,20 +196,31 @@ failures go on its own `last_error`, not `integration_health` (D-029).
 WhatsApp: templates anytime; free text only within 24 h of the customer's last
 message (`domain/whatsapp.ts`); consent recorded on the contact, `STOP` honoured;
 failures are timeline events (`whatsapp_failed`), and only integration-level
-failures mark the integration failing. Meetings: saved first, then the calendar
+failures mark the integration failing.
+
+Instagram (D-030): each org connects its **own** professional account through
+Instagram Login (`INSTAGRAM_APP_ID`/`SECRET`, no Facebook Page), and the
+account's id resolves webhooks to exactly one org. A DM from someone unknown
+goes through `captureLead` (source "Instagram", keyed on the sender so a burst
+of concurrent first DMs makes one lead); a known contact's DM lands on their
+lead. Replies only within 24 h of their last DM — there are no templates.
+Echoes of CRM-sent messages dedupe on the message id; replies typed in the
+Instagram app are recorded as `is_echo`; an unsent DM's text is erased. The
+60-day token is renewed by a daily Vercel Cron (`/api/cron/instagram-token-refresh`,
+`CRON_SECRET`); a failed renewal marks the integration failing. Meetings: saved first, then the calendar
 event is created under an id derived from the meeting (idempotent); a failed sync
 sets `sync_error` and is retryable.
 
 ### Integration credentials — unreadable, and encrypted
 
-`meta_user_tokens`, `meta_page_tokens`, `whatsapp_user_tokens`, `calendar_tokens`
-(keyed by connection), and `assignment_rotation` (not a secret, but no client
+`meta_user_tokens`, `meta_page_tokens`, `whatsapp_user_tokens`, `instagram_tokens`,
+`calendar_tokens` (keyed by connection), and `assignment_rotation` (not a secret, but no client
 needs it) have RLS **enabled with zero policies** and privileges `revoke`d from
 `anon`/`authenticated` (Supabase exposes new public tables to the Data API by
 default, so the revoke is not redundant). Values are additionally AES-256-GCM
 encrypted (`security/crypto.ts`, `enc:v1:` prefix, `INTEGRATION_ENCRYPTION_KEY`;
 legacy plaintext rows still decrypt and are re-encrypted on next write). A
-token-isolation test guards every one; a fifth integration must add the same.
+token-isolation test guards every one; the next integration must add the same.
 
 ### Reporting
 
@@ -223,15 +241,16 @@ src/
     (app)/                        authenticated shell (role-aware sidebar)
       page.tsx                    home: Today (salesperson) | owner dashboard (admin/manager)
       today/                      everyone's personal queue
-      leads/ [id]/                list (filters), detail (call/WhatsApp/meeting actions, timeline)
+      leads/ [id]/                list (filters), detail (call/WhatsApp/Instagram/meeting actions, timeline)
       pipeline/ followups/ meetings/
       team/                       members, roles, lead-assignment mode + rotation
       settings/                   my calendar (everyone); org settings (incl. timezone) + integrations/
-        integrations/             health overview, meta/, whatsapp/, google/
+        integrations/             health overview, meta/, whatsapp/, instagram/, google/
       actions.ts                  server actions (thin: validate → authorize → runAction → service)
     api/
-      webhooks/{meta,whatsapp,mock-lead}/   provider deliveries (signature-verified, no session)
-      integrations/{meta,whatsapp,google}/  OAuth connect + callback
+      webhooks/{meta,whatsapp,instagram,mock-lead}/   provider deliveries (signature-verified, no session)
+      integrations/{meta,whatsapp,instagram,google}/  OAuth connect + callback
+      cron/instagram-token-refresh/     daily token renewal (vercel.json; CRON_SECRET, no session)
       health/                     liveness (public, uninformative)
   components/ui/                  shadcn primitives (generated)
   components/crm/                 feature components, one folder per domain
@@ -261,6 +280,7 @@ Dockerfile, .dockerignore         standalone image; NEXT_PUBLIC_* are build args
 | `0009_whatsapp_conversations.sql` | `conversations`; inbound/status/consent columns; unique provider message id and unique number-per-org |
 | `0010_calendar.sql` | `calendar_connections`, `calendar_tokens` (locked), meeting provider/event/`sync_error`, `meeting_attendees` |
 | `0011_round_robin_and_personal_calendars.sql` | `organizations.lead_assignment_mode`, `organization_members.in_rotation`, `assignment_rotation` (locked) + `next_rotation_assignee()`; `calendar_connections.user_id` (shared vs personal, partial unique indexes), `last_error`; `calendar_tokens` keyed by `connection_id`; `meetings.calendar_connection_id` |
+| `0012_instagram_messaging.sql` | `instagram_connections` (one per org, account globally unique), `instagram_tokens` (locked), `instagram_messages`; `contacts.instagram_user_id` (unique per org) / username / consent, contact channel rule now phone ∨ email ∨ Instagram (`leads_contact_required` dropped); `find_contact_for_capture` gains the Instagram id; `conversations.channel` allows `instagram` |
 
 `activities` is append-only and **`logActivity()` is its only writer**.
 
@@ -282,7 +302,9 @@ Dockerfile, .dockerignore         standalone image; NEXT_PUBLIC_* are build args
   `buttonVariants()`. Base UI's `Button render={<Link/>}` is exposed to assistive
   tech as `role="button"`.
 - **Domain files use relative imports** (the lint rule bans `@/…` there).
-- **`whatsapp_messages`** keeps its name but is the Message table.
+- **`whatsapp_messages`** keeps its name but is the WhatsApp message table;
+  Instagram has its own `instagram_messages`. Both hang off `conversations`
+  (one per contact per channel).
 - **Base UI `Button`** with a non-`<button>` `render` needs `nativeButton={false}`.
 
 ### Testing strategy
@@ -294,12 +316,12 @@ Three levels (see README for commands):
 2. **Integration (Vitest, `tests/integration`)** — real signed-in users against the
    local database. Tenant isolation, every role on sensitive operations, capture
    and webhook idempotency (including concurrent deliveries), WhatsApp send/receive/
-   status/window/consent, meetings + calendar, dashboards reflecting changes, the
+   status/window/consent, Instagram DM capture/reply/echo/unsend/read, meetings + calendar, dashboards reflecting changes, the
    whole lead-to-Won lifecycle in a fresh org. `server-only` is aliased to a no-op
    so services can be imported directly. Tests are re-runnable without a reset.
    The route handlers are invoked directly (`POST(new NextRequest(...))`).
 3. **E2E (Playwright, `tests/e2e`)** — the UI: V1 happy path, Today/dashboards,
-   auth (incl. a real password reset read from Mailpit), WhatsApp demo mode,
+   auth (incl. a real password reset read from Mailpit), WhatsApp and Instagram demo mode,
    onboarding, Meta ingestion. `playwright.config.ts` raises the login/signup/reset
    rate limits for its own server only.
 
@@ -315,7 +337,10 @@ has; Vitest under `NODE_ENV=test` skips `.env.local` (see
 - No CSP header; no MFA; encryption-key rotation is manual (`docs/security.md`).
 - One WhatsApp number per org.
 - Inbound WhatsApp from an unknown number is logged, not turned into a lead.
-- Meta long-lived tokens aren't proactively refreshed.
+- Meta long-lived tokens aren't proactively refreshed (Instagram's are).
+- Instagram: replies only inside the 24-hour window (no `HUMAN_AGENT` tag);
+  attachment links are Instagram CDN URLs that expire; a business-initiated
+  thread with someone not in the CRM isn't recorded.
 - No automation/workflow engine, load-based routing, or ad-spend data (V2).
 - `meta_webhook_events` (Meta's delivery log, used by the admin UI) and
   `webhook_receipts` (idempotency for later providers) are two logs; consolidating

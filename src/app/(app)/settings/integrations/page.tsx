@@ -4,10 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireRole } from "@/lib/auth/session";
 import { calendarMode } from "@/lib/composition/calendar";
+import { instagramMode } from "@/lib/composition/instagram";
 import { whatsappMode } from "@/lib/composition/whatsapp";
 import { formatShortDateTime } from "@/lib/format";
 import { listAuditEvents } from "@/lib/services/audit";
 import { getCalendarConnection } from "@/lib/services/calendar-connections";
+import { getInstagramConnection } from "@/lib/services/instagram";
 import { listIntegrationHealth, type IntegrationHealthRow } from "@/lib/services/integration-health";
 import { getConnection as getMetaConnection } from "@/lib/services/meta";
 import { getOrgTimezone } from "@/lib/services/settings";
@@ -48,12 +50,14 @@ export default async function IntegrationHealthPage() {
   const session = await requireRole(["admin"]);
   const supabase = await createClient();
 
-  const [health, meta, whatsapp, calendar, waMode, calMode, timezone, receipts, audit] = await Promise.all([
+  const [health, meta, whatsapp, instagram, calendar, waMode, igMode, calMode, timezone, receipts, audit] = await Promise.all([
     listIntegrationHealth(supabase, session.orgId),
     getMetaConnection(supabase, session.orgId),
     getWhatsAppConnection(supabase, session.orgId),
+    getInstagramConnection(supabase, session.orgId),
     getCalendarConnection(supabase, session.orgId),
     whatsappMode(supabase, session.orgId),
+    instagramMode(supabase, session.orgId),
     calendarMode(supabase, session.orgId),
     getOrgTimezone(supabase, session.orgId),
     listReceipts(supabase, session.orgId, 10),
@@ -79,6 +83,15 @@ export default async function IntegrationHealthPage() {
       state: stateOf(Boolean(whatsapp?.phone_number_id), byProvider.get("whatsapp"), waMode === "demo"),
       health: byProvider.get("whatsapp"),
       note: waMode === "demo" && !whatsapp?.phone_number_id ? "Demo mode: messages are recorded but not delivered." : undefined,
+    },
+    {
+      key: "instagram",
+      name: "Instagram DMs",
+      description: "DMs to your Instagram account become leads; reply from a lead's page.",
+      href: "/settings/integrations/instagram",
+      state: stateOf(Boolean(instagram), byProvider.get("instagram"), igMode === "demo"),
+      health: byProvider.get("instagram"),
+      note: igMode === "demo" && !instagram ? "Demo mode: replies are recorded but not delivered." : undefined,
     },
     {
       key: "google_calendar",
@@ -166,7 +179,7 @@ export default async function IntegrationHealthPage() {
         </CardHeader>
         <CardContent>
           {receipts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing received yet. Deliveries from WhatsApp and other providers appear here.</p>
+            <p className="text-sm text-muted-foreground">Nothing received yet. Deliveries from WhatsApp, Instagram and other providers appear here.</p>
           ) : (
             <ul className="space-y-2">
               {receipts.map((r) => (

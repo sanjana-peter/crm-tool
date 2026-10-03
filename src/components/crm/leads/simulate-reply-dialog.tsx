@@ -15,10 +15,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { simulateWhatsAppReplyAction } from "@/app/(app)/actions";
+import { simulateInstagramReplyAction, simulateWhatsAppReplyAction } from "@/app/(app)/actions";
+
+const CHANNEL_LABEL = { whatsapp: "WhatsApp", instagram: "Instagram" } as const;
 
 /** Demo mode only: fakes a customer reply through the real inbound pipeline. */
-export function SimulateReplyDialog({ leadId, leadName }: { leadId: string; leadName: string }) {
+export function SimulateReplyDialog({
+  leadId,
+  leadName,
+  channel = "whatsapp",
+}: {
+  leadId: string;
+  leadName: string;
+  channel?: keyof typeof CHANNEL_LABEL;
+}) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("Hi, I saw your ad — can you share the fees?");
   const [pending, setPending] = useState(false);
@@ -27,7 +37,8 @@ export function SimulateReplyDialog({ leadId, leadName }: { leadId: string; lead
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setPending(true);
-    const result = await simulateWhatsAppReplyAction(leadId, text);
+    const simulate = channel === "instagram" ? simulateInstagramReplyAction : simulateWhatsAppReplyAction;
+    const result = await simulate(leadId, text);
     setPending(false);
     if (!result.ok) {
       toast.error(result.error);
@@ -40,19 +51,22 @@ export function SimulateReplyDialog({ leadId, leadName }: { leadId: string; lead
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>Simulate customer reply</DialogTrigger>
+      <DialogTrigger render={<Button variant="outline" size="sm" />}>
+        {channel === "instagram" ? "Simulate Instagram DM" : "Simulate customer reply"}
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Simulate a reply from {leadName}</DialogTitle>
           <DialogDescription>
-            Demo mode only. This goes through the same inbound path a real WhatsApp webhook uses, so the timeline, the
-            24-hour reply window and opt-out handling all behave as they would live. Try replying &ldquo;STOP&rdquo;.
+            Demo mode only. This goes through the same inbound path a real {CHANNEL_LABEL[channel]} webhook uses, so the
+            timeline, the 24-hour reply window and opt-out handling all behave as they would live. Try replying
+            &ldquo;STOP&rdquo;.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="sim-reply">Their message</Label>
-            <Textarea id="sim-reply" rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />
+            <Label htmlFor={`sim-reply-${channel}`}>Their message</Label>
+            <Textarea id={`sim-reply-${channel}`} rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />
           </div>
           <DialogFooter>
             <Button type="submit" disabled={pending || text.trim() === ""}>

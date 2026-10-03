@@ -15,17 +15,21 @@ export interface ContactIdentityInput {
   phone?: string | null;
   additionalPhone?: string | null;
   email?: string | null;
+  /** Instagram-scoped id of someone who DMed the org's account. Already canonical. */
+  instagramUserId?: string | null;
 }
 
 export interface ContactIdentity {
   phoneNormalized: string | null;
   additionalPhoneNormalized: string | null;
   emailNormalized: string | null;
+  /** Present only when the contact came from (or was matched by) Instagram. */
+  instagramUserId?: string | null;
 }
 
 /**
  * The dedupe keys for a contact. Two contacts in the same org with the same
- * `phoneNormalized` or `emailNormalized` are the same person — the database
+ * `phoneNormalized`, `emailNormalized` or `instagramUserId` are the same person — the database
  * backs this with partial unique indexes so a race can't create a duplicate.
  */
 export function contactIdentity(
@@ -36,12 +40,13 @@ export function contactIdentity(
     phoneNormalized: normalizePhone(input.phone, defaultCountry),
     additionalPhoneNormalized: normalizePhone(input.additionalPhone, defaultCountry),
     emailNormalized: normalizeEmail(input.email),
+    ...(input.instagramUserId?.trim() ? { instagramUserId: input.instagramUserId.trim() } : {}),
   };
 }
 
 /** A contact can't be reached, or deduped, without at least one of these. */
 export function hasContactChannel(identity: ContactIdentity): boolean {
-  return Boolean(identity.phoneNormalized || identity.emailNormalized);
+  return Boolean(identity.phoneNormalized || identity.emailNormalized || identity.instagramUserId);
 }
 
 export function displayName(contact: { firstName: string; lastName?: string | null }): string {

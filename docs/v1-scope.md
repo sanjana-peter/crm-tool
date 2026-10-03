@@ -67,6 +67,8 @@ reseller · marketplace · advanced forecasting/BI · native mobile apps.
 | Automation (e.g. auto-nudge an unclaimed Meta lead) | v2 | consume timeline events / `JobQueue` (D-008) |
 | Ad-spend / ROI | v2 | new adapter + table beside `meta_lead_attribution` |
 | Auto-create a lead from an inbound WhatsApp (click-to-WhatsApp ads) | v2 | `handleInbound` "unmatched" branch → `captureLead` |
+| Instagram DMs (own account, DM → lead, replies) | **done (v2)** | `services/instagram-conversations.ts` (D-030) |
+| Instagram replies after 24 h (`HUMAN_AGENT` tag) | v2 | `sendInstagramText` window check + App Review |
 | Per-salesperson calendars | **done (v2)** | personal `calendar_connections` rows (D-029) |
 | DaySchedule / Calendly API | v2 | new `CalendarProvider` |
 | Multiple pipelines per org | v2 | `pipelines` table exists; needs UI |

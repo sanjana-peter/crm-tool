@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Mail, Phone, PhoneCall, Pencil, Sparkles, CalendarClock, Video, Tag, IndianRupee } from "lucide-react";
+import { AtSign, Mail, Phone, PhoneCall, Pencil, Sparkles, CalendarClock, Video, Tag, IndianRupee } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { requireSession } from "@/lib/auth/session";
@@ -12,6 +12,9 @@ import { getLeadAttribution } from "@/lib/services/meta";
 import { listTemplates } from "@/lib/services/whatsapp";
 import { getConversationState, listMessagesForLead } from "@/lib/services/conversations";
 import { whatsappMode } from "@/lib/composition/whatsapp";
+import { instagramMode } from "@/lib/composition/instagram";
+import { getInstagramConversationState, listInstagramMessagesForLead } from "@/lib/services/instagram-conversations";
+import { serviceWindowClosesAt } from "@/lib/domain/instagram";
 import { calendarMode } from "@/lib/composition/calendar";
 import { formatDateTime } from "@/lib/format";
 import { addDays, dueBoundaries } from "@/lib/domain/due";
@@ -35,6 +38,8 @@ import { SendWhatsAppDialog } from "@/components/crm/leads/send-whatsapp-dialog"
 import { WhatsAppMessagesList } from "@/components/crm/leads/whatsapp-messages-list";
 import { WhatsAppConsentControl } from "@/components/crm/leads/whatsapp-consent-control";
 import { SimulateReplyDialog } from "@/components/crm/leads/simulate-reply-dialog";
+import { InstagramMessagesList } from "@/components/crm/leads/instagram-messages-list";
+import { InstagramReplyForm } from "@/components/crm/leads/instagram-reply-form";
 import type { Lead, LeadStatus, MetaLeadAttribution, Profile } from "@/lib/types/domain";
 
 export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -57,6 +62,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     whatsAppTemplates,
     whatsAppMessages,
     waState,
+    igMode,
+    instagramMessages,
+    igState,
   ] = await Promise.all([
     getLeadTimeline(supabase, id),
     listLeadStatuses(supabase, session.orgId),
@@ -68,6 +76,9 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
     listTemplates(supabase, session.orgId),
     listMessagesForLead(supabase, id),
     getConversationState(supabase, id),
+    instagramMode(supabase, session.orgId),
+    listInstagramMessagesForLead(supabase, id),
+    getInstagramConversationState(supabase, id),
   ]);
 
   const memberProfiles = members
@@ -90,6 +101,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const lostReason = (lead as { lost_reason?: string | null }).lost_reason;
   const assigneeName = leadTyped.assignee?.full_name || leadTyped.assignee?.email || "Unassigned";
   const lastActivityAt = activities[0]?.created_at ?? null;
+  const hasInstagram = igState.instagramUserId !== null;
+  const igWindowClosesAt = igState.windowOpen ? serviceWindowClosesAt(igState.lastInboundAt) : null;
 
   return (
     <div className="-mx-4 -mt-4 md:-mx-6 md:-mt-6">
@@ -104,6 +117,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               <EditLeadDialog
                 lead={leadTyped}
                 members={memberProfiles}
+                hasInstagram={hasInstagram}
                 trigger={
                   <Button variant="ghost" size="icon-sm" aria-label="Edit lead">
                     <Pencil className="size-3.5" />
@@ -120,6 +134,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               {leadTyped.email && (
                 <span className="flex items-center gap-1.5">
                   <Mail className="size-3.5" /> {leadTyped.email}
+                </span>
+              )}
+              {hasInstagram && (
+                <span className="flex items-center gap-1.5">
+                  <AtSign className="size-3.5" /> {igState.username ? `@${igState.username}` : "Instagram"}
                 </span>
               )}
               <span className="flex items-center gap-1.5">
@@ -257,6 +276,31 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                   source={(lead.contact as { whatsapp_consent_source?: string | null } | null)?.whatsapp_consent_source ?? null}
                 />
                 <WhatsAppMessagesList messages={whatsAppMessages} timezone={timezone} />
+              </CardContent>
+            </Card>
+          )}
+
+          {igMode !== "unavailable" && hasInstagram && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                  <span className="flex items-center gap-2">
+                    Instagram
+                    {igState.username && <span className="text-sm font-normal text-muted-foreground">@{igState.username}</span>}
+                    {igMode === "demo" && <Badge variant="outline">Demo mode</Badge>}
+                  </span>
+                  {igMode === "demo" && <SimulateReplyDialog leadId={id} leadName={leadName} channel="instagram" />}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <InstagramMessagesList messages={instagramMessages} timezone={timezone} />
+                <InstagramReplyForm
+                  leadId={id}
+                  windowOpen={igState.windowOpen}
+                  windowClosesAt={igWindowClosesAt ? formatDateTime(igWindowClosesAt, timezone) : null}
+                  optedOut={igState.consent === "opted_out"}
+                  demo={igMode === "demo"}
+                />
               </CardContent>
             </Card>
           )}

@@ -42,6 +42,12 @@ describe("hasContactChannel", () => {
   it("does not count an additional phone alone as a channel", () => {
     expect(hasContactChannel(contactIdentity({ additionalPhone: "9876543210" }))).toBe(false);
   });
+
+  it("counts an Instagram id as a way to reach someone who only ever DMed", () => {
+    expect(contactIdentity({ instagramUserId: " IGSID-1 " }).instagramUserId).toBe("IGSID-1");
+    expect(hasContactChannel(contactIdentity({ instagramUserId: "IGSID-1" }))).toBe(true);
+    expect(hasContactChannel(contactIdentity({ instagramUserId: "  " }))).toBe(false);
+  });
 });
 
 describe("displayName", () => {

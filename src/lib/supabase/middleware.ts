@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // `/api/webhooks` is authenticated by provider signature, not by a session —
 // Meta's POSTs carry no cookies and must never be redirected to /login.
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/webhooks", "/api/health"];
+// `/api/cron` authenticates itself with CRON_SECRET.
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/auth", "/api/webhooks", "/api/cron", "/api/health"];
 
 // Match a whole path segment: `/auth` must not also make `/authors` public.
 function isPublicPath(pathname: string) {

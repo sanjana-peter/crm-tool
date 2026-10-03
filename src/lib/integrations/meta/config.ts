@@ -26,7 +26,7 @@ export const META_OAUTH_SCOPES = [
   "business_management",
 ] as const;
 
-function readAppUrl(): string {
+export function readAppUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_APP_URL;
   if (explicit) return explicit.replace(/\/$/, "");
 
@@ -44,7 +44,7 @@ const DEFAULT_GRAPH_VERSION = "v23.0";
  * means (`//oauth/access_token` → "nonexisting field (access_token)"), so
  * accept "v23.0" or "23.0" and fall back to the default for anything else.
  */
-function readGraphVersion(): string {
+export function readGraphVersion(): string {
   const raw = process.env.META_GRAPH_VERSION?.trim().replace(/^["']|["']$/g, "");
   if (!raw) return DEFAULT_GRAPH_VERSION;
   const version = raw.startsWith("v") ? raw : `v${raw}`;

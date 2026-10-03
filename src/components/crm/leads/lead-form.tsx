@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  leadFormFieldsSchema,
   leadFormSchema,
   type LeadFormInput,
   leadPrioritySchema,
@@ -28,15 +29,18 @@ export function LeadForm({
   onSubmit,
   submitLabel = "Save",
   showAssignment = true,
+  channelOptional = false,
 }: {
   members: Profile[];
   defaultValues?: Partial<LeadFormInput>;
   onSubmit: (input: LeadFormInput) => Promise<void>;
   submitLabel?: string;
   showAssignment?: boolean;
+  /** The contact is reachable on Instagram, so phone and email may both be blank. */
+  channelOptional?: boolean;
 }) {
   const form = useForm<LeadFormInput>({
-    resolver: zodResolver(leadFormSchema),
+    resolver: zodResolver(channelOptional ? leadFormFieldsSchema : leadFormSchema),
     defaultValues: {
       first_name: "",
       last_name: "",

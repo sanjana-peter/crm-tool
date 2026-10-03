@@ -491,3 +491,38 @@ calendar integration as failing; the shared one still reports through
 unlinks them (`calendar_connection_id` → null), so later changes to those
 meetings no longer reach the calendar. For a Google app in "Testing", every
 rep who connects must be listed as a test user.
+
+## D-030 — Instagram DMs: the org's own account via Instagram Login; strangers become leads
+**Status:** Accepted
+
+**Context.** Organizations want DMs to their Instagram account handled in the
+CRM. Each org has its own account, not necessarily linked to a Facebook Page or
+to the Meta Ads connection. An Instagram sender has no phone or email — only an
+Instagram-scoped id (IGSID).
+
+**Decision.**
+- **Instagram Login, not the Page-token route.** Each org connects its own
+  professional account (`instagram_connections`, one per org; the account id is
+  globally unique so a webhook resolves to exactly one org). Separate from Meta
+  Ads, so toggling DMs can't disturb `leadgen` delivery. Token encrypted in
+  `instagram_tokens` (locked like every token table).
+- **A DM from someone unknown creates a lead** through `captureLead` (source
+  "Instagram", org's assignment strategy). Logging it as "unmatched", as
+  WhatsApp does, would lose almost every DM, since there's nothing to match on.
+  The IGSID is a third contact identity (`contacts.instagram_user_id`, unique
+  per org), and the contact channel rule becomes phone ∨ email ∨ Instagram. The
+  capture's external id is the *sender*, not the message, so a burst of first
+  DMs delivered concurrently resolves to one lead via the existing unique index.
+  A known contact's later DMs land on their latest lead, even a closed one.
+- **Separate `instagram_messages` table** under the shared `conversations`
+  (channel `instagram`), rather than generalizing `whatsapp_messages`, whose
+  template/phone columns don't apply.
+- **Replies only inside the 24-hour window.** No `HUMAN_AGENT` tag (needs its
+  own App Review); the reply box explains instead.
+- **Daily token renewal** by Vercel Cron (`CRON_SECRET`), since an org whose DMs
+  go quiet for 60 days would otherwise be silently disconnected.
+
+**Consequence.** Spam DMs become leads too; a manager closes them as Lost.
+Until App Review grants Advanced Access, only accounts added as Instagram
+testers on the Meta app can connect. Attachment links point at Instagram's CDN
+and expire.

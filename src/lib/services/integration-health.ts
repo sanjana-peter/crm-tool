@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logger, redact } from "@/lib/observability/logger";
 
-export type IntegrationProvider = "meta" | "whatsapp" | "google_calendar" | "mock_lead_source" | "file_upload";
+export type IntegrationProvider = "meta" | "whatsapp" | "instagram" | "google_calendar" | "mock_lead_source" | "file_upload";
 export type IntegrationStatus = "connected" | "failing" | "disconnected";
 
 export interface IntegrationHealthRow {

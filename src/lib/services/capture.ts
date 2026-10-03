@@ -30,6 +30,8 @@ export interface CaptureInput {
   phone?: string | null;
   additionalPhone?: string | null;
   email?: string | null;
+  /** Someone who DMed the org's Instagram account: their only identity may be this. */
+  instagram?: { userId: string; username?: string | null } | null;
   source: string;
   sourceDetail?: string | null;
   tags?: string[];
@@ -75,7 +77,7 @@ export interface CaptureDeps {
  * arrived (docs/ARCHITECTURE.md).
  *
  *   1. Replayed external event?           → `duplicate`, write nothing.
- *   2. Find the contact by normalized phone/email, else create one.
+ *   2. Find the contact by normalized phone/email (or Instagram id), else create one.
  *   3. Contact already has an open lead?  → `merged` (or `existing_restricted`
  *      if the caller isn't allowed to see it).
  *   4. Otherwise create the opportunity in the pipeline's entry stage.
@@ -88,11 +90,11 @@ export async function captureLead(
 ): Promise<CaptureResult> {
   const country = await getDefaultCountry(db, actor.orgId);
   const identity = contactIdentity(
-    { phone: input.phone, additionalPhone: input.additionalPhone, email: input.email },
+    { phone: input.phone, additionalPhone: input.additionalPhone, email: input.email, instagramUserId: input.instagram?.userId },
     country
   );
 
-  if (!input.phone?.trim() && !input.email?.trim()) {
+  if (!input.phone?.trim() && !input.email?.trim() && !identity.instagramUserId) {
     throw new CaptureError("Provide at least a phone number or an email.");
   }
   if (input.strictPhone && input.phone?.trim() && !identity.phoneNormalized) {
@@ -124,6 +126,7 @@ export async function captureLead(
             phone: input.phone,
             additionalPhone: input.additionalPhone,
             email: input.email,
+            instagramUsername: input.instagram?.username,
             source: input.source,
             sourceDetail: input.sourceDetail,
             tags: input.tags,

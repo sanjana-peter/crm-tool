@@ -137,6 +137,7 @@ matter:
 | `NEXT_PUBLIC_APP_URL` | OAuth redirect URIs, webhook URLs, reset links |
 | `INTEGRATION_ENCRYPTION_KEY` | **Production** — encrypts stored provider tokens |
 | `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` | Live Meta Ads + WhatsApp |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `CRON_SECRET` | Live Instagram DMs (+ daily token renewal) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Live Google Calendar / Meet |
 | `ENABLE_MOCK_PROVIDERS`, `MOCK_WEBHOOK_SECRET` | Demo mode (default: on outside production) |
 | `SIGNUP_ENABLED` | Set `false` to close public sign-up |
@@ -152,7 +153,14 @@ matter:
    `<APP_URL>/api/webhooks/whatsapp` (field `messages`); connect in Settings, pick
    the number, sync templates. Templates are authored/approved in Meta Business
    Manager.
-3. **Google Calendar** — Google Cloud OAuth client (Web), Calendar API enabled,
+3. **Instagram DMs** — in the same Meta app add the Instagram product ("API
+   setup with Instagram login"); set `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET`
+   (its own, not the Meta ones) and `CRON_SECRET`; redirect URI
+   `<APP_URL>/api/integrations/instagram/callback`; webhook
+   `<APP_URL>/api/webhooks/instagram` (fields `messages`, `messaging_seen`).
+   On the Instagram account turn on *Allow access to messages*, then connect in
+   Settings. In Dev mode only accounts added as Instagram testers can connect.
+4. **Google Calendar** — Google Cloud OAuth client (Web), Calendar API enabled,
    redirect URI `<APP_URL>/api/integrations/google/callback`, set the two
    `GOOGLE_*` vars, then connect in Settings.
 

@@ -19,10 +19,12 @@ export function EditLeadDialog({
   lead,
   members,
   trigger,
+  hasInstagram = false,
 }: {
   lead: Lead;
   members: Profile[];
   trigger: React.ReactElement;
+  hasInstagram?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -58,6 +60,7 @@ export function EditLeadDialog({
           onSubmit={handleSubmit}
           submitLabel="Save changes"
           showAssignment={false}
+          channelOptional={hasInstagram}
         />
       </DialogContent>
     </Dialog>

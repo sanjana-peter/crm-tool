@@ -68,31 +68,36 @@ const UNIQUE_VIOLATION = "23505";
 // Conversations
 // ---------------------------------------------------------------------------
 
-async function getOrCreateConversation(admin: SupabaseClient, orgId: string, contactId: string): Promise<string> {
-  const { data: existing } = await admin
-    .from("conversations")
-    .select("id")
-    .eq("org_id", orgId)
-    .eq("contact_id", contactId)
-    .eq("channel", "whatsapp")
-    .maybeSingle();
+export type ConversationChannel = "whatsapp" | "instagram";
+
+/** The contact's conversation on a channel, created on first use. Race-safe on the (org, contact, channel) key. */
+export async function getOrCreateConversation(
+  admin: SupabaseClient,
+  orgId: string,
+  contactId: string,
+  channel: ConversationChannel = "whatsapp"
+): Promise<string> {
+  const find = () =>
+    admin
+      .from("conversations")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("contact_id", contactId)
+      .eq("channel", channel)
+      .maybeSingle();
+
+  const { data: existing } = await find();
   if (existing) return existing.id as string;
 
   const { data, error } = await admin
     .from("conversations")
-    .insert({ org_id: orgId, contact_id: contactId, channel: "whatsapp" })
+    .insert({ org_id: orgId, contact_id: contactId, channel })
     .select("id")
     .single();
 
   if (error?.code === UNIQUE_VIOLATION) {
     // A concurrent message created it first.
-    const { data: raced } = await admin
-      .from("conversations")
-      .select("id")
-      .eq("org_id", orgId)
-      .eq("contact_id", contactId)
-      .eq("channel", "whatsapp")
-      .single();
+    const { data: raced } = await find();
     return raced!.id as string;
   }
   if (error) throw new Error(`Failed to open the conversation: ${error.message}`);
@@ -392,7 +397,7 @@ async function resolveOrg(admin: SupabaseClient, provider: WhatsAppProvider, pho
 }
 
 /** The lead a reply should land on: the contact's open lead, else their most recent one. */
-async function leadForContact(admin: SupabaseClient, orgId: string, contactId: string): Promise<string | null> {
+export async function leadForContact(admin: SupabaseClient, orgId: string, contactId: string): Promise<string | null> {
   const { data } = await admin
     .from("leads")
     .select("id")
